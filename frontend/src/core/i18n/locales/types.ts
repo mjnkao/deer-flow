@@ -118,6 +118,7 @@ export interface Translations {
     chats: string;
     demoChats: string;
     agents: string;
+    agentProfiles: string;
     channels: string;
     aicos: string;
   };
