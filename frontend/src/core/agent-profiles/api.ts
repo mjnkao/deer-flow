@@ -10,6 +10,7 @@ export interface AgentProfileFileSummary {
   kind: string;
   language: AgentProfileLanguage;
   scope: string;
+  agent_ref?: string | null;
   editable: boolean;
   exists: boolean;
   size?: number | null;
@@ -18,6 +19,14 @@ export interface AgentProfileFileSummary {
 
 export interface AgentProfileFile extends AgentProfileFileSummary {
   content: string;
+}
+
+export interface AgentProfileSkills {
+  agent_ref: string;
+  editable: boolean;
+  inherited: boolean;
+  source: string;
+  skills: string[] | null;
 }
 
 async function parseError(response: Response, fallback: string) {
@@ -72,4 +81,38 @@ export async function updateAgentProfileFile(
     );
   }
   return res.json() as Promise<AgentProfileFile>;
+}
+
+export async function getAgentProfileSkills(
+  agentRef: string,
+): Promise<AgentProfileSkills> {
+  const res = await fetch(
+    `${getBackendBaseURL()}/api/agent-profile-skills/${encodeURIComponent(agentRef)}`,
+  );
+  if (!res.ok) {
+    throw new Error(
+      await parseError(res, `Failed to load agent skills: ${res.statusText}`),
+    );
+  }
+  return res.json() as Promise<AgentProfileSkills>;
+}
+
+export async function updateAgentProfileSkills(
+  agentRef: string,
+  skills: string[] | null,
+): Promise<AgentProfileSkills> {
+  const res = await fetch(
+    `${getBackendBaseURL()}/api/agent-profile-skills/${encodeURIComponent(agentRef)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skills }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      await parseError(res, `Failed to save agent skills: ${res.statusText}`),
+    );
+  }
+  return res.json() as Promise<AgentProfileSkills>;
 }

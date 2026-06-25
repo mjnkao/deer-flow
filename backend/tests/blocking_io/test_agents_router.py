@@ -24,11 +24,14 @@ import pytest
 from app.gateway.routers.agents import (
     AgentCreateRequest,
     AgentProfileFileUpdateRequest,
+    AgentProfileSkillsUpdateRequest,
     create_agent_endpoint,
     delete_agent,
     get_agent_profile_file,
+    get_agent_profile_skills,
     list_agent_profile_files,
     update_agent_profile_file,
+    update_agent_profile_skills,
 )
 from deerflow.config.agents_api_config import load_agents_api_config_from_dict
 from deerflow.config.paths import get_paths
@@ -90,7 +93,10 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
 
         listing = await list_agent_profile_files()
         ids = {item.id for item in listing.files}
-        assert {"app.config", "app.extensions", "repo.agents", "runtime.user", "agent.profile-test.soul", "agent.profile-test.config"} <= ids
+        assert {"app.config", "app.extensions", "repo.agents", "runtime.lead_soul", "runtime.user", "agent.profile-test.soul", "agent.profile-test.config"} <= ids
+        by_id = {item.id: item for item in listing.files}
+        assert by_id["runtime.lead_soul"].agent_ref == "lead_agent"
+        assert by_id["agent.profile-test.soul"].agent_ref == "profile-test"
 
         soul = await get_agent_profile_file("agent.profile-test.soul")
         assert soul.content == "old soul"
@@ -102,6 +108,45 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
         user_profile = await update_agent_profile_file("runtime.user", AgentProfileFileUpdateRequest(content="# User\n"))
         assert user_profile.exists is True
         assert (runtime_home / "USER.md").read_text(encoding="utf-8") == "# User\n"
+    finally:
+        load_agents_api_config_from_dict({})
+
+
+async def test_agent_profile_skills_read_and_update_custom_agent_policy(tmp_path: Path, monkeypatch) -> None:
+    project_root = tmp_path / "project"
+    runtime_home = tmp_path / "runtime"
+    project_root.mkdir()
+    runtime_home.mkdir()
+    (project_root / "config.yaml").write_text("agents_api:\n  enabled: true\nmodels: []\n", encoding="utf-8")
+
+    monkeypatch.setenv("DEER_FLOW_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("DEER_FLOW_HOME", str(runtime_home))
+    monkeypatch.setattr("deerflow.config.paths._paths", None)
+    load_agents_api_config_from_dict({"enabled": True})
+    try:
+        await create_agent_endpoint(AgentCreateRequest(name="profile-test", soul="old soul"))
+
+        inherited = await get_agent_profile_skills("profile-test")
+        assert inherited.agent_ref == "profile-test"
+        assert inherited.inherited is True
+        assert inherited.skills is None
+
+        empty = await update_agent_profile_skills("profile-test", AgentProfileSkillsUpdateRequest(skills=[]))
+        assert empty.inherited is False
+        assert empty.skills == []
+
+        user_id = get_effective_user_id()
+        config_file = runtime_home / "users" / user_id / "agents" / "profile-test" / "config.yaml"
+        assert "skills: []" in config_file.read_text(encoding="utf-8")
+
+        reset = await update_agent_profile_skills("profile-test", AgentProfileSkillsUpdateRequest(skills=None))
+        assert reset.inherited is True
+        assert reset.skills is None
+        assert "skills:" not in config_file.read_text(encoding="utf-8")
+
+        lead_policy = await get_agent_profile_skills("lead_agent")
+        assert lead_policy.editable is False
+        assert lead_policy.source == "extensions_config.json"
     finally:
         load_agents_api_config_from_dict({})
 

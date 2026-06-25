@@ -21,6 +21,7 @@ from deerflow.config.extensions_config import ExtensionsConfig
 from deerflow.config.paths import get_paths
 from deerflow.config.runtime_paths import project_root
 from deerflow.runtime.user_context import get_effective_user_id
+from deerflow.skills.storage import get_or_new_skill_storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agents"])
@@ -38,6 +39,7 @@ class AgentProfileFileDescriptor:
     kind: str
     language: Literal["markdown", "yaml", "json"]
     scope: str
+    agent_ref: str | None = None
     editable: bool = True
 
 
@@ -67,6 +69,7 @@ class AgentProfileFileSummary(BaseModel):
     kind: str
     language: Literal["markdown", "yaml", "json"]
     scope: str
+    agent_ref: str | None = None
     editable: bool
     exists: bool
     size: int | None = None
@@ -83,6 +86,18 @@ class AgentProfileFileResponse(AgentProfileFileSummary):
 
 class AgentProfileFileUpdateRequest(BaseModel):
     content: str = Field(default="", description="Full replacement file content.")
+
+
+class AgentProfileSkillsResponse(BaseModel):
+    agent_ref: str
+    editable: bool
+    inherited: bool
+    source: str
+    skills: list[str] | None = Field(default=None, description="None means inherit all globally enabled skills.")
+
+
+class AgentProfileSkillsUpdateRequest(BaseModel):
+    skills: list[str] | None = Field(default=None, description="None means inherit all globally enabled skills; [] means no skills.")
 
 
 class AgentCreateRequest(BaseModel):
@@ -155,6 +170,7 @@ def _profile_file_summary(desc: AgentProfileFileDescriptor) -> AgentProfileFileS
         kind=desc.kind,
         language=desc.language,
         scope=desc.scope,
+        agent_ref=desc.agent_ref,
         editable=desc.editable,
         exists=exists,
         size=stat.st_size if stat else None,
@@ -180,6 +196,7 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
                 kind="app_config",
                 language="yaml",
                 scope="global",
+                agent_ref="global",
             )
         )
     except FileNotFoundError:
@@ -195,6 +212,7 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
                 kind="extensions_config",
                 language="json",
                 scope="global",
+                agent_ref="global",
             )
         )
 
@@ -212,10 +230,22 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
                     kind="instruction_doc",
                     language="markdown",
                     scope="repo",
+                    agent_ref="global",
                 )
             )
 
     paths = get_paths()
+    add(
+        AgentProfileFileDescriptor(
+            id="runtime.lead_soul",
+            label="lead_agent/SOUL.md",
+            path=paths.base_dir / "SOUL.md",
+            kind="lead_agent_soul",
+            language="markdown",
+            scope="agent:lead_agent",
+            agent_ref="lead_agent",
+        )
+    )
     add(
         AgentProfileFileDescriptor(
             id="runtime.user",
@@ -224,6 +254,7 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
             kind="user_profile",
             language="markdown",
             scope="runtime",
+            agent_ref="global",
         )
     )
 
@@ -244,6 +275,7 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
                     kind=f"agent_{key}",
                     language=_file_language(path),
                     scope=f"agent:{agent.name}",
+                    agent_ref=agent.name,
                     editable=agent_dir == paths.user_agent_dir(user_id, agent.name),
                 )
             )
@@ -698,6 +730,130 @@ async def update_agent_profile_file(file_id: str, request: AgentProfileFileUpdat
     except Exception as e:
         logger.error("Failed to update agent profile file %s: %s", file_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update profile file: {str(e)}")
+
+
+def _normalize_skill_names(skills: list[str] | None) -> list[str] | None:
+    if skills is None:
+        return None
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for skill in skills:
+        name = skill.strip()
+        if not name or name in seen:
+            continue
+        normalized.append(name)
+        seen.add(name)
+    return normalized
+
+
+def _available_skill_names() -> set[str]:
+    return {skill.name for skill in get_or_new_skill_storage().load_skills(enabled_only=False)}
+
+
+def _load_agent_skills_policy(agent_ref: str) -> AgentProfileSkillsResponse:
+    if agent_ref in {"global", "lead_agent"}:
+        return AgentProfileSkillsResponse(
+            agent_ref=agent_ref,
+            editable=False,
+            inherited=True,
+            source="extensions_config.json",
+            skills=None,
+        )
+
+    _validate_agent_name(agent_ref)
+    name = _normalize_agent_name(agent_ref)
+    user_id = get_effective_user_id()
+    cfg = load_agent_config(name, user_id=user_id)
+    paths = get_paths()
+    editable = paths.user_agent_dir(user_id, name).exists()
+    return AgentProfileSkillsResponse(
+        agent_ref=name,
+        editable=editable,
+        inherited=cfg.skills is None,
+        source=str(paths.user_agent_dir(user_id, name) / "config.yaml"),
+        skills=cfg.skills,
+    )
+
+
+@router.get(
+    "/agent-profile-skills/{agent_ref}",
+    response_model=AgentProfileSkillsResponse,
+    summary="Get Agent Skill Policy",
+    description="Read the skill policy for lead_agent/global runtime or a custom DeerFlow agent.",
+)
+async def get_agent_profile_skills(agent_ref: str) -> AgentProfileSkillsResponse:
+    _require_agents_api_enabled()
+
+    try:
+        return await asyncio.to_thread(_load_agent_skills_policy, agent_ref)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_ref}' not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to read skill policy for %s: %s", agent_ref, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to read agent skill policy: {str(e)}")
+
+
+@router.put(
+    "/agent-profile-skills/{agent_ref}",
+    response_model=AgentProfileSkillsResponse,
+    summary="Update Agent Skill Policy",
+    description="Update the skill whitelist in a custom DeerFlow agent's config.yaml.",
+)
+async def update_agent_profile_skills(agent_ref: str, request: AgentProfileSkillsUpdateRequest) -> AgentProfileSkillsResponse:
+    _require_agents_api_enabled()
+
+    if agent_ref in {"global", "lead_agent"}:
+        raise HTTPException(
+            status_code=409,
+            detail="lead_agent uses global skills from extensions_config.json. Toggle global skills via /api/skills instead.",
+        )
+
+    _validate_agent_name(agent_ref)
+    name = _normalize_agent_name(agent_ref)
+    requested_skills = _normalize_skill_names(request.skills)
+
+    def _write_policy() -> AgentProfileSkillsResponse:
+        if requested_skills:
+            available = _available_skill_names()
+            unknown = sorted(set(requested_skills) - available)
+            if unknown:
+                raise HTTPException(status_code=422, detail=f"Unknown skill(s): {', '.join(unknown)}")
+
+        user_id = get_effective_user_id()
+        paths = get_paths()
+        agent_dir = paths.user_agent_dir(user_id, name)
+        if not agent_dir.exists():
+            if paths.agent_dir(name).exists():
+                raise HTTPException(status_code=409, detail=f"Agent '{name}' only exists in the legacy shared layout and is read-only.")
+            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+
+        config_file = agent_dir / "config.yaml"
+        if config_file.exists():
+            raw = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+            if not isinstance(raw, dict):
+                raise HTTPException(status_code=422, detail=f"Agent '{name}' config.yaml must contain a mapping.")
+            config_data = dict(raw)
+        else:
+            config_data = {"name": name}
+
+        config_data["name"] = name
+        if requested_skills is None:
+            config_data.pop("skills", None)
+        else:
+            config_data["skills"] = requested_skills
+
+        _atomic_write_text(config_file, yaml.safe_dump(config_data, sort_keys=False, allow_unicode=True))
+        return _load_agent_skills_policy(name)
+
+    try:
+        return await asyncio.to_thread(_write_policy)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update skill policy for %s: %s", agent_ref, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update agent skill policy: {str(e)}")
 
 
 @router.delete(
