@@ -2,6 +2,7 @@
 
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
 import { yaml } from "@codemirror/lang-yaml";
 import { basicLightInit } from "@uiw/codemirror-theme-basic";
 import { monokaiInit } from "@uiw/codemirror-theme-monokai";
@@ -55,6 +56,7 @@ const customLightTheme = basicLightInit({
 
 function languageExtension(language: AgentProfileFileSummary["language"]) {
   if (language === "json") return json();
+  if (language === "python") return python();
   if (language === "yaml") return yaml();
   return markdown();
 }
@@ -67,9 +69,11 @@ function formatBytes(size?: number | null) {
 
 function groupLabel(scope: string) {
   if (scope === "global") return "App config";
-  if (scope === "repo") return "Instruction docs";
   if (scope === "runtime") return "Runtime profile";
   if (scope.startsWith("agent:")) return scope.replace("agent:", "Agent: ");
+  if (scope.startsWith("subagent:"))
+    return scope.replace("subagent:", "Subagent: ");
+  if (scope.startsWith("skills:")) return scope.replace("skills:", "Skills: ");
   return scope;
 }
 
@@ -77,12 +81,21 @@ function agentLabel(agentRef: string) {
   if (agentRef === "all") return "All profiles";
   if (agentRef === "global") return "Global runtime";
   if (agentRef === "lead_agent") return "lead_agent";
+  if (agentRef.startsWith("subagent:"))
+    return agentRef.replace("subagent:", "subagent: ");
   return agentRef;
+}
+
+function isSubagentRef(agentRef: string) {
+  return agentRef.startsWith("subagent:");
 }
 
 function isCustomAgent(agentRef: string) {
   return (
-    agentRef !== "all" && agentRef !== "global" && agentRef !== "lead_agent"
+    agentRef !== "all" &&
+    agentRef !== "global" &&
+    agentRef !== "lead_agent" &&
+    !isSubagentRef(agentRef)
   );
 }
 
@@ -122,10 +135,18 @@ export function AgentProfilesEditor() {
   }, [files]);
 
   const selectedAgentRef = agentFilter === "all" ? "lead_agent" : agentFilter;
+  const skillPolicyAgentRef = isSubagentRef(selectedAgentRef)
+    ? "global"
+    : selectedAgentRef;
 
   const filteredFiles = useMemo(() => {
     if (agentFilter === "all") return files;
-    return files.filter((file) => file.agent_ref === agentFilter);
+    if (agentFilter === "global") {
+      return files.filter((file) => file.agent_ref === "global");
+    }
+    return files.filter(
+      (file) => file.agent_ref === "global" || file.agent_ref === agentFilter,
+    );
   }, [agentFilter, files]);
 
   const grouped = useMemo(() => {
@@ -207,7 +228,7 @@ export function AgentProfilesEditor() {
     let cancelled = false;
     setLoadingSkills(true);
     setError(undefined);
-    Promise.all([loadSkills(), getAgentProfileSkills(selectedAgentRef)])
+    Promise.all([loadSkills(), getAgentProfileSkills(skillPolicyAgentRef)])
       .then(([loadedSkills, policy]) => {
         if (cancelled) return;
         setSkills(loadedSkills);
@@ -226,7 +247,7 @@ export function AgentProfilesEditor() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, selectedAgentRef]);
+  }, [activeTab, selectedAgentRef, skillPolicyAgentRef]);
 
   async function save() {
     if (!selectedFile || !dirty || saving) return;

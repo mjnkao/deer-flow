@@ -83,6 +83,9 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
     (project_root / "config.yaml").write_text("agents_api:\n  enabled: true\nmodels: []\n", encoding="utf-8")
     (project_root / "extensions_config.json").write_text('{"mcpServers": {}, "skills": {}}\n', encoding="utf-8")
     (project_root / "AGENTS.md").write_text("# Project agents\n", encoding="utf-8")
+    lead_prompt = project_root / "backend" / "packages" / "harness" / "deerflow" / "agents" / "lead_agent" / "prompt.py"
+    lead_prompt.parent.mkdir(parents=True)
+    lead_prompt.write_text("SYSTEM_PROMPT_TEMPLATE = 'test'\n", encoding="utf-8")
 
     monkeypatch.setenv("DEER_FLOW_PROJECT_ROOT", str(project_root))
     monkeypatch.setenv("DEER_FLOW_HOME", str(runtime_home))
@@ -93,8 +96,19 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
 
         listing = await list_agent_profile_files()
         ids = {item.id for item in listing.files}
-        assert {"app.config", "app.extensions", "repo.agents", "runtime.lead_soul", "runtime.user", "agent.profile-test.soul", "agent.profile-test.config"} <= ids
+        assert {
+            "app.config",
+            "app.extensions",
+            "lead.prompt_source",
+            "runtime.lead_soul",
+            "runtime.user",
+            "agent.profile-test.soul",
+            "agent.profile-test.config",
+        } <= ids
+        assert "repo.agents" not in ids
         by_id = {item.id: item for item in listing.files}
+        assert by_id["lead.prompt_source"].editable is False
+        assert by_id["lead.prompt_source"].language == "python"
         assert by_id["runtime.lead_soul"].agent_ref == "lead_agent"
         assert by_id["agent.profile-test.soul"].agent_ref == "profile-test"
 

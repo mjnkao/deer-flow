@@ -22,13 +22,15 @@ from deerflow.config.paths import get_paths
 from deerflow.config.runtime_paths import project_root
 from deerflow.runtime.user_context import get_effective_user_id
 from deerflow.skills.storage import get_or_new_skill_storage
+from deerflow.skills.types import SkillCategory
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agents"])
 
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 MAX_PROFILE_FILE_BYTES = 1_000_000
-PROFILE_FILE_LANGUAGES = {"markdown", "yaml", "json"}
+PROFILE_FILE_LANGUAGES = {"markdown", "yaml", "json", "python"}
+PROFILE_LANGUAGE = Literal["markdown", "yaml", "json", "python"]
 
 
 @dataclass(frozen=True)
@@ -37,7 +39,7 @@ class AgentProfileFileDescriptor:
     label: str
     path: Path
     kind: str
-    language: Literal["markdown", "yaml", "json"]
+    language: PROFILE_LANGUAGE
     scope: str
     agent_ref: str | None = None
     editable: bool = True
@@ -67,7 +69,7 @@ class AgentProfileFileSummary(BaseModel):
     label: str
     path: str
     kind: str
-    language: Literal["markdown", "yaml", "json"]
+    language: PROFILE_LANGUAGE
     scope: str
     agent_ref: str | None = None
     editable: bool
@@ -151,8 +153,10 @@ def _require_agents_api_enabled() -> None:
         )
 
 
-def _file_language(path: Path) -> Literal["markdown", "yaml", "json"]:
+def _file_language(path: Path) -> PROFILE_LANGUAGE:
     suffix = path.suffix.lower()
+    if suffix == ".py":
+        return "python"
     if suffix == ".json":
         return "json"
     if suffix in {".yaml", ".yml"}:
@@ -179,7 +183,7 @@ def _profile_file_summary(desc: AgentProfileFileDescriptor) -> AgentProfileFileS
 
 
 def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
-    """Return the explicit profile/config allowlist for the current user."""
+    """Return DeerFlow prompt-injection and runtime config files."""
     descriptors: dict[str, AgentProfileFileDescriptor] = {}
     root = project_root()
 
@@ -216,21 +220,57 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
             )
         )
 
-    for file_id, label, path in (
-        ("repo.agents", "AGENTS.md", root / "AGENTS.md"),
-        ("backend.agents", "backend/AGENTS.md", root / "backend" / "AGENTS.md"),
-        ("frontend.agents", "frontend/AGENTS.md", root / "frontend" / "AGENTS.md"),
+    lead_prompt_path = root / "backend" / "packages" / "harness" / "deerflow" / "agents" / "lead_agent" / "prompt.py"
+    if lead_prompt_path.exists():
+        add(
+            AgentProfileFileDescriptor(
+                id="lead.prompt_source",
+                label="lead_agent/prompt.py",
+                path=lead_prompt_path,
+                kind="lead_prompt_source",
+                language="python",
+                scope="agent:lead_agent",
+                agent_ref="global",
+                editable=False,
+            )
+        )
+
+    for subagent_name, path in (
+        ("general-purpose", root / "backend" / "packages" / "harness" / "deerflow" / "subagents" / "builtins" / "general_purpose.py"),
+        ("bash", root / "backend" / "packages" / "harness" / "deerflow" / "subagents" / "builtins" / "bash_agent.py"),
     ):
-        if path.exists():
+        if not path.exists():
+            continue
+        add(
+            AgentProfileFileDescriptor(
+                id=f"subagent.{subagent_name}.prompt_source",
+                label=f"subagents/{subagent_name}.py",
+                path=path,
+                kind="subagent_prompt_source",
+                language="python",
+                scope=f"subagent:{subagent_name}",
+                agent_ref=f"subagent:{subagent_name}",
+                editable=False,
+            )
+        )
+
+    config_path = root / "config.yaml"
+    if config_path.exists():
+        try:
+            config_data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            config_data = {}
+        custom_subagents = ((config_data.get("subagents") or {}).get("custom_agents") or {}) if isinstance(config_data, dict) else {}
+        if custom_subagents:
             add(
                 AgentProfileFileDescriptor(
-                    id=file_id,
-                    label=label,
-                    path=path,
-                    kind="instruction_doc",
-                    language="markdown",
-                    scope="repo",
-                    agent_ref="global",
+                    id="subagent.custom.config",
+                    label="config.yaml (custom subagent prompts)",
+                    path=config_path,
+                    kind="custom_subagent_prompt_config",
+                    language="yaml",
+                    scope="subagent:custom",
+                    agent_ref="subagent:custom",
                 )
             )
 
@@ -257,8 +297,21 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
             agent_ref="global",
         )
     )
-
     user_id = get_effective_user_id()
+    user_memory_path = paths.user_memory_file(user_id)
+    if user_memory_path.exists():
+        add(
+            AgentProfileFileDescriptor(
+                id="runtime.memory",
+                label="memory.json",
+                path=user_memory_path,
+                kind="memory_context",
+                language="json",
+                scope="runtime",
+                agent_ref="global",
+            )
+        )
+
     for agent in list_custom_agents(user_id=user_id):
         agent_dir = paths.user_agent_dir(user_id, agent.name)
         if not agent_dir.exists() and paths.agent_dir(agent.name).exists():
@@ -279,6 +332,23 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
                     editable=agent_dir == paths.user_agent_dir(user_id, agent.name),
                 )
             )
+
+    try:
+        for skill in get_or_new_skill_storage().load_skills(enabled_only=True):
+            add(
+                AgentProfileFileDescriptor(
+                    id=f"skill.{skill.category}.{skill.name}",
+                    label=f"skills/{skill.category}/{skill.skill_path}/SKILL.md",
+                    path=skill.skill_file,
+                    kind="skill_prompt",
+                    language="markdown",
+                    scope=f"skills:{skill.category}",
+                    agent_ref="global",
+                    editable=skill.category == SkillCategory.CUSTOM,
+                )
+            )
+    except Exception:
+        logger.exception("Failed to load prompt-injected skill files for Agent Profiles")
 
     return descriptors
 

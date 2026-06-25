@@ -1,7 +1,7 @@
 import { fetch } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
-export type AgentProfileLanguage = "markdown" | "yaml" | "json";
+export type AgentProfileLanguage = "markdown" | "yaml" | "json" | "python";
 
 export interface AgentProfileFileSummary {
   id: string;
