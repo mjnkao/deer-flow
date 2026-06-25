@@ -80,12 +80,18 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
     runtime_home = tmp_path / "runtime"
     project_root.mkdir()
     runtime_home.mkdir()
-    (project_root / "config.yaml").write_text("agents_api:\n  enabled: true\nmodels: []\n", encoding="utf-8")
+    (project_root / "config.yaml").write_text(
+        "agents_api:\n  enabled: true\nmodels: []\nsandbox:\n  use: deerflow.sandbox.local:LocalSandboxProvider\n",
+        encoding="utf-8",
+    )
     (project_root / "extensions_config.json").write_text('{"mcpServers": {}, "skills": {}}\n', encoding="utf-8")
     (project_root / "AGENTS.md").write_text("# Project agents\n", encoding="utf-8")
     lead_prompt = project_root / "backend" / "packages" / "harness" / "deerflow" / "agents" / "lead_agent" / "prompt.py"
     lead_prompt.parent.mkdir(parents=True)
     lead_prompt.write_text("SYSTEM_PROMPT_TEMPLATE = 'test'\n", encoding="utf-8")
+    skill_file = project_root / "skills" / "custom" / "profile-helper" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("---\nname: profile-helper\ndescription: Helps profile tests\n---\n\nUse carefully.\n", encoding="utf-8")
 
     monkeypatch.setenv("DEER_FLOW_PROJECT_ROOT", str(project_root))
     monkeypatch.setenv("DEER_FLOW_HOME", str(runtime_home))
@@ -104,6 +110,7 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
             "runtime.user",
             "agent.profile-test.soul",
             "agent.profile-test.config",
+            "skill.custom.profile-helper",
         } <= ids
         assert "repo.agents" not in ids
         by_id = {item.id: item for item in listing.files}
@@ -122,6 +129,13 @@ async def test_agent_profile_files_read_and_update_allowlisted_files(tmp_path: P
         user_profile = await update_agent_profile_file("runtime.user", AgentProfileFileUpdateRequest(content="# User\n"))
         assert user_profile.exists is True
         assert (runtime_home / "USER.md").read_text(encoding="utf-8") == "# User\n"
+
+        updated_skill = await update_agent_profile_file(
+            "skill.custom.profile-helper",
+            AgentProfileFileUpdateRequest(content="---\nname: profile-helper\ndescription: Updated profile helper\n---\n\nNew guidance.\n"),
+        )
+        assert updated_skill.content.endswith("New guidance.\n")
+        assert skill_file.read_text(encoding="utf-8").endswith("New guidance.\n")
     finally:
         load_agents_api_config_from_dict({})
 
@@ -131,7 +145,10 @@ async def test_agent_profile_skills_read_and_update_custom_agent_policy(tmp_path
     runtime_home = tmp_path / "runtime"
     project_root.mkdir()
     runtime_home.mkdir()
-    (project_root / "config.yaml").write_text("agents_api:\n  enabled: true\nmodels: []\n", encoding="utf-8")
+    (project_root / "config.yaml").write_text(
+        "agents_api:\n  enabled: true\nmodels: []\nsandbox:\n  use: deerflow.sandbox.local:LocalSandboxProvider\n",
+        encoding="utf-8",
+    )
 
     monkeypatch.setenv("DEER_FLOW_PROJECT_ROOT", str(project_root))
     monkeypatch.setenv("DEER_FLOW_HOME", str(runtime_home))
@@ -161,6 +178,22 @@ async def test_agent_profile_skills_read_and_update_custom_agent_policy(tmp_path
         lead_policy = await get_agent_profile_skills("lead_agent")
         assert lead_policy.editable is False
         assert lead_policy.source == "extensions_config.json"
+
+        subagent_inherited = await get_agent_profile_skills("subagent:bash")
+        assert subagent_inherited.agent_ref == "subagent:bash"
+        assert subagent_inherited.inherited is True
+        assert "subagents.agents.bash.skills" in subagent_inherited.source
+
+        subagent_empty = await update_agent_profile_skills("subagent:bash", AgentProfileSkillsUpdateRequest(skills=[]))
+        assert subagent_empty.inherited is False
+        assert subagent_empty.skills == []
+        assert "bash:" in (project_root / "config.yaml").read_text(encoding="utf-8")
+        assert "skills: []" in (project_root / "config.yaml").read_text(encoding="utf-8")
+
+        subagent_reset = await update_agent_profile_skills("subagent:bash", AgentProfileSkillsUpdateRequest(skills=None))
+        assert subagent_reset.inherited is True
+        assert subagent_reset.skills is None
+        assert "bash:" not in (project_root / "config.yaml").read_text(encoding="utf-8")
     finally:
         load_agents_api_config_from_dict({})
 
@@ -168,7 +201,10 @@ async def test_agent_profile_skills_read_and_update_custom_agent_policy(tmp_path
 async def test_agent_profile_files_reject_invalid_json(tmp_path: Path, monkeypatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
-    (project_root / "config.yaml").write_text("agents_api:\n  enabled: true\nmodels: []\n", encoding="utf-8")
+    (project_root / "config.yaml").write_text(
+        "agents_api:\n  enabled: true\nmodels: []\nsandbox:\n  use: deerflow.sandbox.local:LocalSandboxProvider\n",
+        encoding="utf-8",
+    )
     (project_root / "extensions_config.json").write_text('{"mcpServers": {}, "skills": {}}\n', encoding="utf-8")
 
     monkeypatch.setenv("DEER_FLOW_PROJECT_ROOT", str(project_root))

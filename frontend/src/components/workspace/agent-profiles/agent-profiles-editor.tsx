@@ -99,6 +99,10 @@ function isCustomAgent(agentRef: string) {
   );
 }
 
+function supportsSkillWhitelist(agentRef: string) {
+  return isCustomAgent(agentRef) || isSubagentRef(agentRef);
+}
+
 export function AgentProfilesEditor() {
   const { resolvedTheme } = useTheme();
   const [files, setFiles] = useState<AgentProfileFileSummary[]>([]);
@@ -135,9 +139,7 @@ export function AgentProfilesEditor() {
   }, [files]);
 
   const selectedAgentRef = agentFilter === "all" ? "lead_agent" : agentFilter;
-  const skillPolicyAgentRef = isSubagentRef(selectedAgentRef)
-    ? "global"
-    : selectedAgentRef;
+  const skillPolicyAgentRef = selectedAgentRef;
 
   const filteredFiles = useMemo(() => {
     if (agentFilter === "all") return files;
@@ -300,7 +302,7 @@ export function AgentProfilesEditor() {
   }
 
   async function saveCustomSkillPolicy(nextSkills: string[] | null) {
-    if (!isCustomAgent(selectedAgentRef)) return;
+    if (!supportsSkillWhitelist(selectedAgentRef)) return;
     setSavingSkill("__policy__");
     try {
       const next = await updateAgentProfileSkills(selectedAgentRef, nextSkills);
@@ -533,7 +535,9 @@ export function AgentProfilesEditor() {
                     ? "lead_agent reads the globally enabled skills from extensions_config.json."
                     : selectedAgentRef === "global"
                       ? "Global skills are stored in extensions_config.json and are inherited by agents without a whitelist."
-                      : "Custom agents store an optional skills whitelist in their config.yaml."}
+                      : isSubagentRef(selectedAgentRef)
+                        ? "Subagents store optional skills whitelists in root config.yaml under subagents."
+                        : "Custom agents store an optional skills whitelist in their config.yaml."}
                 </p>
               </div>
               {skillPolicy ? (
@@ -560,7 +564,7 @@ export function AgentProfilesEditor() {
               </div>
             ) : (
               <>
-                {isCustomAgent(selectedAgentRef) ? (
+                {supportsSkillWhitelist(selectedAgentRef) ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant={skillPolicy?.inherited ? "default" : "outline"}
@@ -592,14 +596,15 @@ export function AgentProfilesEditor() {
                     </div>
                   ) : (
                     skills.map((skill) => {
-                      const checked = isCustomAgent(selectedAgentRef)
+                      const hasWhitelist =
+                        supportsSkillWhitelist(selectedAgentRef);
+                      const checked = hasWhitelist
                         ? (skillPolicy?.skills ?? []).includes(skill.name)
                         : skill.enabled;
                       const disabled =
                         savingSkill === skill.name ||
                         savingSkill === "__policy__" ||
-                        (isCustomAgent(selectedAgentRef) &&
-                          Boolean(skillPolicy?.inherited));
+                        (hasWhitelist && Boolean(skillPolicy?.inherited));
                       return (
                         <div
                           key={skill.name}
@@ -609,8 +614,7 @@ export function AgentProfilesEditor() {
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-medium">{skill.name}</span>
                               <Badge variant="outline">{skill.category}</Badge>
-                              {!skill.enabled &&
-                              isCustomAgent(selectedAgentRef) ? (
+                              {!skill.enabled && hasWhitelist ? (
                                 <Badge variant="secondary">
                                   globally disabled
                                 </Badge>
@@ -624,7 +628,7 @@ export function AgentProfilesEditor() {
                             checked={checked}
                             disabled={disabled}
                             onCheckedChange={(next) =>
-                              isCustomAgent(selectedAgentRef)
+                              hasWhitelist
                                 ? toggleCustomSkill(skill.name, next)
                                 : toggleGlobalSkill(skill.name, next)
                             }
@@ -698,9 +702,10 @@ export function AgentProfilesEditor() {
               <p className="text-muted-foreground">
                 Global enabled/disabled skill state lives in
                 extensions_config.json. Custom agents can add a skills field in
-                config.yaml. Missing skills means inherit all globally enabled
-                skills, an empty list means no skills, and a named list means a
-                whitelist.
+                config.yaml. Subagents can add a skills field in root
+                config.yaml under subagents.agents or subagents.custom_agents.
+                Missing skills means inherit all globally enabled skills, an
+                empty list means no skills, and a named list means a whitelist.
               </p>
             </section>
           </div>

@@ -14,6 +14,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from deerflow.agents.lead_agent.prompt import refresh_skills_system_prompt_cache_async
 from deerflow.config.agents_api_config import get_agents_api_config
 from deerflow.config.agents_config import AgentConfig, list_custom_agents, load_agent_config, load_agent_soul
 from deerflow.config.app_config import AppConfig
@@ -43,6 +44,7 @@ class AgentProfileFileDescriptor:
     scope: str
     agent_ref: str | None = None
     editable: bool = True
+    skill_name: str | None = None
 
 
 class AgentResponse(BaseModel):
@@ -334,7 +336,9 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
             )
 
     try:
-        for skill in get_or_new_skill_storage().load_skills(enabled_only=True):
+        for skill in get_or_new_skill_storage().load_skills(enabled_only=False):
+            if skill.category != SkillCategory.CUSTOM and not skill.enabled:
+                continue
             add(
                 AgentProfileFileDescriptor(
                     id=f"skill.{skill.category}.{skill.name}",
@@ -345,6 +349,7 @@ def _agent_profile_descriptors() -> dict[str, AgentProfileFileDescriptor]:
                     scope=f"skills:{skill.category}",
                     agent_ref="global",
                     editable=skill.category == SkillCategory.CUSTOM,
+                    skill_name=skill.name,
                 )
             )
     except Exception:
@@ -374,6 +379,11 @@ def _validate_profile_content(desc: AgentProfileFileDescriptor, content: str) ->
             yaml.safe_load(content)
         except yaml.YAMLError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid YAML: {exc}") from exc
+    if desc.kind == "skill_prompt" and desc.skill_name:
+        try:
+            get_or_new_skill_storage().validate_skill_markdown_content(desc.skill_name, content)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -794,7 +804,10 @@ async def update_agent_profile_file(file_id: str, request: AgentProfileFileUpdat
         return AgentProfileFileResponse(**summary.model_dump(), content=request.content)
 
     try:
-        return await asyncio.to_thread(_write)
+        saved = await asyncio.to_thread(_write)
+        if saved.kind == "skill_prompt":
+            await refresh_skills_system_prompt_cache_async()
+        return saved
     except HTTPException:
         raise
     except Exception as e:
@@ -820,7 +833,78 @@ def _available_skill_names() -> set[str]:
     return {skill.name for skill in get_or_new_skill_storage().load_skills(enabled_only=False)}
 
 
+def _load_yaml_mapping(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=422, detail=f"{path.name} must contain a YAML mapping.")
+    return dict(raw)
+
+
+def _normalise_mapping_child(parent: dict, key: str) -> dict:
+    child = parent.get(key)
+    if child is None:
+        child = {}
+        parent[key] = child
+    if not isinstance(child, dict):
+        raise HTTPException(status_code=422, detail=f"config.yaml field '{key}' must contain a mapping.")
+    return child
+
+
+def _parse_subagent_ref(agent_ref: str) -> str | None:
+    if not agent_ref.startswith("subagent:"):
+        return None
+    name = agent_ref.removeprefix("subagent:")
+    _validate_agent_name(name)
+    return _normalize_agent_name(name)
+
+
+def _load_subagent_skills_policy(agent_ref: str, subagent_name: str) -> AgentProfileSkillsResponse:
+    config_path = AppConfig.resolve_config_path()
+    config_data = _load_yaml_mapping(config_path)
+    subagents = config_data.get("subagents") or {}
+    if not isinstance(subagents, dict):
+        raise HTTPException(status_code=422, detail="config.yaml field 'subagents' must contain a mapping.")
+    agents = subagents.get("agents") or {}
+    custom_agents = subagents.get("custom_agents") or {}
+    if not isinstance(agents, dict) or not isinstance(custom_agents, dict):
+        raise HTTPException(status_code=422, detail="config.yaml subagent sections must contain mappings.")
+
+    source = f"{config_path}:subagents.agents.{subagent_name}.skills"
+    section = agents.get(subagent_name)
+    if subagent_name in custom_agents:
+        section = custom_agents.get(subagent_name)
+        source = f"{config_path}:subagents.custom_agents.{subagent_name}.skills"
+
+    if section is None:
+        return AgentProfileSkillsResponse(
+            agent_ref=agent_ref,
+            editable=True,
+            inherited=True,
+            source=source,
+            skills=None,
+        )
+    if not isinstance(section, dict):
+        raise HTTPException(status_code=422, detail=f"Subagent '{subagent_name}' config must contain a mapping.")
+
+    skills = section.get("skills")
+    if skills is not None and not isinstance(skills, list):
+        raise HTTPException(status_code=422, detail=f"Subagent '{subagent_name}' skills must be a list or null.")
+    return AgentProfileSkillsResponse(
+        agent_ref=agent_ref,
+        editable=True,
+        inherited="skills" not in section or skills is None,
+        source=source,
+        skills=skills,
+    )
+
+
 def _load_agent_skills_policy(agent_ref: str) -> AgentProfileSkillsResponse:
+    subagent_name = _parse_subagent_ref(agent_ref)
+    if subagent_name is not None:
+        return _load_subagent_skills_policy(agent_ref, subagent_name)
+
     if agent_ref in {"global", "lead_agent"}:
         return AgentProfileSkillsResponse(
             agent_ref=agent_ref,
@@ -849,7 +933,7 @@ def _load_agent_skills_policy(agent_ref: str) -> AgentProfileSkillsResponse:
     "/agent-profile-skills/{agent_ref}",
     response_model=AgentProfileSkillsResponse,
     summary="Get Agent Skill Policy",
-    description="Read the skill policy for lead_agent/global runtime or a custom DeerFlow agent.",
+    description="Read the skill policy for lead_agent/global runtime, a custom DeerFlow agent, or a subagent.",
 )
 async def get_agent_profile_skills(agent_ref: str) -> AgentProfileSkillsResponse:
     _require_agents_api_enabled()
@@ -869,7 +953,7 @@ async def get_agent_profile_skills(agent_ref: str) -> AgentProfileSkillsResponse
     "/agent-profile-skills/{agent_ref}",
     response_model=AgentProfileSkillsResponse,
     summary="Update Agent Skill Policy",
-    description="Update the skill whitelist in a custom DeerFlow agent's config.yaml.",
+    description="Update the skill whitelist in a custom DeerFlow agent config or root subagent config.",
 )
 async def update_agent_profile_skills(agent_ref: str, request: AgentProfileSkillsUpdateRequest) -> AgentProfileSkillsResponse:
     _require_agents_api_enabled()
@@ -880,8 +964,12 @@ async def update_agent_profile_skills(agent_ref: str, request: AgentProfileSkill
             detail="lead_agent uses global skills from extensions_config.json. Toggle global skills via /api/skills instead.",
         )
 
-    _validate_agent_name(agent_ref)
-    name = _normalize_agent_name(agent_ref)
+    subagent_name = _parse_subagent_ref(agent_ref)
+    if subagent_name is None:
+        _validate_agent_name(agent_ref)
+        name = _normalize_agent_name(agent_ref)
+    else:
+        name = subagent_name
     requested_skills = _normalize_skill_names(request.skills)
 
     def _write_policy() -> AgentProfileSkillsResponse:
@@ -890,6 +978,31 @@ async def update_agent_profile_skills(agent_ref: str, request: AgentProfileSkill
             unknown = sorted(set(requested_skills) - available)
             if unknown:
                 raise HTTPException(status_code=422, detail=f"Unknown skill(s): {', '.join(unknown)}")
+
+        if subagent_name is not None:
+            config_path = AppConfig.resolve_config_path()
+            config_data = _load_yaml_mapping(config_path)
+            subagents = _normalise_mapping_child(config_data, "subagents")
+            agents = _normalise_mapping_child(subagents, "agents")
+            custom_agents = _normalise_mapping_child(subagents, "custom_agents")
+
+            target_parent = custom_agents if subagent_name in custom_agents else agents
+            section = target_parent.get(subagent_name)
+            if section is None:
+                section = {}
+                target_parent[subagent_name] = section
+            if not isinstance(section, dict):
+                raise HTTPException(status_code=422, detail=f"Subagent '{subagent_name}' config must contain a mapping.")
+
+            if requested_skills is None:
+                section.pop("skills", None)
+                if target_parent is agents and not section:
+                    agents.pop(subagent_name, None)
+            else:
+                section["skills"] = requested_skills
+
+            _atomic_write_text(config_path, yaml.safe_dump(config_data, sort_keys=False, allow_unicode=True))
+            return _load_subagent_skills_policy(agent_ref, subagent_name)
 
         user_id = get_effective_user_id()
         paths = get_paths()
