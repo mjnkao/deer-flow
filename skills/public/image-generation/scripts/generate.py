@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from urllib.request import urlopen
 
 import requests
 
@@ -47,6 +48,23 @@ def _resolve_provider(override_env: str, existing_provider: str, has_existing_cr
 
 def _minimax_host() -> str:
     return os.getenv("MINIMAX_API_HOST", MINIMAX_DEFAULT_HOST).rstrip("/")
+
+
+def _openai_image_base_url() -> str:
+    return os.getenv("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+
+
+def _aspect_ratio_to_openai_size(aspect_ratio: str) -> str:
+    normalized = aspect_ratio.strip().lower()
+    return {
+        "1:1": "1024x1024",
+        "16:9": "1536x1024",
+        "4:3": "1536x1024",
+        "3:2": "1536x1024",
+        "9:16": "1024x1536",
+        "3:4": "1024x1536",
+        "2:3": "1024x1536",
+    }.get(normalized, "1024x1024")
 
 
 def _check_base_resp(payload: dict) -> None:
@@ -148,6 +166,48 @@ def _generate_image_minimax(
     return f"Successfully generated image to {output_file}"
 
 
+def _generate_image_openai(
+    prompt: str, reference_images: list[str], output_file: str, aspect_ratio: str
+) -> str:
+    api_key = os.getenv("OPENAI_IMAGE_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "OPENAI_IMAGE_API_KEY or OPENAI_API_KEY is not set"
+    if reference_images:
+        print("Note: OpenAI-compatible image generation ignores reference images.")
+
+    body = {
+        "model": os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+        "prompt": _minimax_prompt(prompt),
+        "n": 1,
+        "size": os.getenv("OPENAI_IMAGE_SIZE", _aspect_ratio_to_openai_size(aspect_ratio)),
+        "response_format": "b64_json",
+    }
+    response = requests.post(
+        f"{_openai_image_base_url()}/images/generations",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=body,
+        timeout=120,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    images = payload.get("data") or []
+    if not images:
+        raise Exception("OpenAI-compatible image endpoint returned no image data")
+    image = images[0]
+    _ensure_output_dir(output_file)
+    if image.get("b64_json"):
+        with open(output_file, "wb") as f:
+            f.write(base64.b64decode(image["b64_json"]))
+        return f"Successfully generated image to {output_file}"
+    if image.get("url"):
+        with urlopen(image["url"], timeout=120) as resp:
+            content = resp.read()
+        with open(output_file, "wb") as f:
+            f.write(content)
+        return f"Successfully generated image to {output_file}"
+    raise Exception("OpenAI-compatible image endpoint returned neither b64_json nor url")
+
+
 def _generate_image_gemini(
     prompt: str, reference_images: list[str], output_file: str, aspect_ratio: str
 ) -> str:
@@ -204,9 +264,11 @@ def generate_image(
     )
     if provider == "minimax":
         return _generate_image_minimax(prompt, reference_images, output_file, aspect_ratio)
+    if provider in ("openai", "openai-compatible", "9router"):
+        return _generate_image_openai(prompt, reference_images, output_file, aspect_ratio)
     if provider in ("gemini", "google"):
         return _generate_image_gemini(prompt, reference_images, output_file, aspect_ratio)
-    raise ValueError(f"Unknown image provider: {provider!r} (use 'gemini' or 'minimax')")
+    raise ValueError(f"Unknown image provider: {provider!r} (use 'gemini', 'minimax', or 'openai')")
 
 
 if __name__ == "__main__":

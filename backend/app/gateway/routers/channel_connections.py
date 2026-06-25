@@ -340,6 +340,8 @@ async def _create_state(
 def _connect_instruction(provider: str, code: str) -> str:
     if provider == "telegram":
         return f"Send /start {code} to the DeerFlow Telegram bot."
+    if provider == "discord":
+        return f"Send connect {code} to the DeerFlow Discord bot."
     meta = _PROVIDER_META.get(provider)
     if meta is None:
         raise HTTPException(status_code=404, detail="Unknown channel provider")

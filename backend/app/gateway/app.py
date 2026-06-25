@@ -13,6 +13,7 @@ from app.gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_orig
 from app.gateway.deps import langgraph_runtime
 from app.gateway.routers import (
     agents,
+    aicos_x,
     artifacts,
     assistants_compat,
     auth,
@@ -41,6 +42,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +371,9 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
 
     # MCP API is mounted at /api/mcp
     app.include_router(mcp.router)
+
+    # AICOS-X dashboard boundary is mounted at /api/aicos-x
+    app.include_router(aicos_x.router)
 
     # Memory API is mounted at /api/memory
     app.include_router(memory.router)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from typing import TYPE_CHECKING, Any
@@ -43,6 +44,34 @@ _CHANNEL_CREDENTIAL_KEYS: dict[str, list[str]] = {
 
 _CHANNELS_LANGGRAPH_URL_ENV = "DEER_FLOW_CHANNELS_LANGGRAPH_URL"
 _CHANNELS_GATEWAY_URL_ENV = "DEER_FLOW_CHANNELS_GATEWAY_URL"
+
+
+class _LoopBoundConnectionRepo:
+    """Run async repository calls on the loop that owns the DB engine/pool."""
+
+    def __init__(self, repo: Any, loop: asyncio.AbstractEventLoop) -> None:
+        self._repo = repo
+        self._loop = loop
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._repo, name)
+        if not callable(attr):
+            return attr
+
+        async def call(*args: Any, **kwargs: Any) -> Any:
+            result = attr(*args, **kwargs)
+            if not inspect.isawaitable(result):
+                return result
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+            if running_loop is self._loop:
+                return await result
+            future = asyncio.run_coroutine_threadsafe(result, self._loop)
+            return await asyncio.wrap_future(future)
+
+        return call
 
 
 def _channel_has_credentials(name: str, channel_config: dict[str, Any]) -> bool:
@@ -326,7 +355,10 @@ class ChannelService:
             config = dict(config)
             config["channel_store"] = self.store
             if self._connection_repo is not None:
-                config["connection_repo"] = self._connection_repo
+                config["connection_repo"] = _LoopBoundConnectionRepo(
+                    self._connection_repo,
+                    asyncio.get_running_loop(),
+                )
             channel = channel_cls(bus=self.bus, config=config)
             self._channels[name] = channel
             await channel.start()

@@ -13,7 +13,9 @@ img = load("image-generation")
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     for k in ["GEMINI_API_KEY", "MINIMAX_API_KEY", "IMAGE_GENERATION_PROVIDER",
-              "MINIMAX_API_HOST", "MINIMAX_IMAGE_MODEL"]:
+              "MINIMAX_API_HOST", "MINIMAX_IMAGE_MODEL", "OPENAI_IMAGE_API_KEY",
+              "OPENAI_API_KEY", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_MODEL",
+              "OPENAI_IMAGE_SIZE"]:
         monkeypatch.delenv(k, raising=False)
 
 
@@ -65,6 +67,36 @@ def test_minimax_builds_payload_and_writes(monkeypatch, tmp_path):
     assert captured["json"]["aspect_ratio"] == "16:9"
     assert captured["json"]["n"] == 1
     assert captured["json"]["prompt_optimizer"] is True
+    assert "Successfully generated image" in msg
+
+
+def test_openai_builds_payload_and_writes(monkeypatch, tmp_path):
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_IMAGE_API_KEY", "img-key")
+    monkeypatch.setenv("OPENAI_IMAGE_BASE_URL", "http://127.0.0.1:20128/v1")
+    monkeypatch.setenv("OPENAI_IMAGE_MODEL", "cx/gpt-5.5-image")
+    raw = b"IMG"
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, **kw):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        return FakeResp({"data": [{"b64_json": base64.b64encode(raw).decode()}]})
+
+    monkeypatch.setattr(img.requests, "post", fake_post)
+    out = tmp_path / "o.jpg"
+    prompt_file = tmp_path / "p.json"
+    prompt_file.write_text('{"prompt": "a blue circuit board"}', encoding="utf-8")
+    msg = img.generate_image(str(prompt_file), [], str(out), "16:9")
+
+    assert out.read_bytes() == raw
+    assert captured["url"] == "http://127.0.0.1:20128/v1/images/generations"
+    assert captured["headers"]["Authorization"] == "Bearer img-key"
+    assert captured["json"]["model"] == "cx/gpt-5.5-image"
+    assert captured["json"]["prompt"] == "a blue circuit board"
+    assert captured["json"]["size"] == "1536x1024"
+    assert captured["json"]["response_format"] == "b64_json"
     assert "Successfully generated image" in msg
 
 
@@ -180,7 +212,7 @@ def test_minimax_creates_nested_output_dir(monkeypatch, tmp_path):
 
 
 def test_unknown_provider_raises(monkeypatch, tmp_path):
-    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "openai")
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "unknown")
     monkeypatch.setenv("GEMINI_API_KEY", "g")
     pf = tmp_path / "p.json"
     pf.write_text("x", encoding="utf-8")

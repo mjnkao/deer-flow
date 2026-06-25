@@ -35,6 +35,18 @@ import { cn } from "@/lib/utils";
 import { ChannelProviderIcon } from "./channel-provider-icon";
 import { ChannelRuntimeConfigDialog } from "./channel-runtime-config-dialog";
 
+function showConnectionInstruction(instruction: string): void {
+  toast.success(instruction, {
+    duration: 30000,
+    action: {
+      label: "Copy",
+      onClick: () => {
+        void navigator.clipboard?.writeText(instruction);
+      },
+    },
+  });
+}
+
 function getProviderUnavailableReason(
   provider: ChannelProvider,
   t: ReturnType<typeof useI18n>["t"],
@@ -80,7 +92,7 @@ export function WorkspaceChannelsList() {
           return;
         }
         closeConnectWindow(connectWindow);
-        toast.success(result.instruction);
+        showConnectionInstruction(result.instruction);
       })
       .catch((error) => {
         closeConnectWindow(connectWindow);

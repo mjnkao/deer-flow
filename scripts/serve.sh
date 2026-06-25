@@ -188,6 +188,12 @@ _is_port_listening() {
         fi
     fi
 
+    # macOS netstat does not support Linux's `-ltn` semantics; it may print
+    # non-listening connections and cause false positives for local dev ports.
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        return 1
+    fi
+
     if command -v netstat >/dev/null 2>&1; then
         if netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[.:])${port}$"; then
             return 0

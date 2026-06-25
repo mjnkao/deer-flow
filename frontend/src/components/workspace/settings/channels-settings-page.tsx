@@ -53,6 +53,18 @@ function getProviderDescription(
   return descriptions[provider.provider] ?? provider.display_name;
 }
 
+function showConnectionInstruction(instruction: string): void {
+  toast.success(instruction, {
+    duration: 30000,
+    action: {
+      label: "Copy",
+      onClick: () => {
+        void navigator.clipboard?.writeText(instruction);
+      },
+    },
+  });
+}
+
 function getConnectionLabel(connection: ChannelConnection): string | null {
   const account = connection.external_account_name;
   const workspace = connection.workspace_name;
@@ -156,7 +168,7 @@ function ChannelProviderItem({
           return;
         }
         closeConnectWindow(connectWindow);
-        toast.success(result.instruction);
+        showConnectionInstruction(result.instruction);
       })
       .catch((error) => {
         closeConnectWindow(connectWindow);
