@@ -43,9 +43,36 @@ Draft upstream PRs currently opened from this roadmap:
   memory, interrupts, and resume semantics.
 - DeerFlow owns intake identity, workflow status projection, idempotency,
   run/checkpoint references, channel/API routing, and runtime observability.
+- StreamBridge backends own live run-event delivery to connected clients.
+  Durable workflow state should not depend on a particular StreamBridge backend.
 - The optional DeerFlow Work Module may map workflow ids to generic Work Units,
   and external adapters may map those Work Units to domain task/card/issue
   systems. Those mappings live outside this runtime stack.
+
+## Redis StreamBridge Alignment
+
+The Redis StreamBridge proposals in upstream discussion address a different
+layer from this durable workflow runtime stack. They make live run streaming
+work across multiple gateway workers by moving `StreamBridge` from an
+in-process queue to Redis Streams. That is a runtime transport and reconnect
+improvement, not a canonical workflow ledger.
+
+The durable workflow layer remains compatible with either `memory` or `redis`
+StreamBridge:
+
+- `StreamBridge` delivers recent run events to SSE clients and may use bounded
+  retention, replay cursors, TTLs, and terminal reconciliation.
+- `RunEventStore` remains the durable low-level run event source.
+- `WorkflowStore` and `workflow_events` remain the durable intake, identity,
+  lifecycle, idempotency, and recovery projection.
+- Workflow timelines merge workflow events with `RunEventStore` rows at query
+  time instead of copying Redis stream entries.
+
+If a Redis StreamBridge lands before this stack, the run wrapper PR should
+rebase around gateway service and thread-run router changes, preserve
+cross-process stream capability checks, and continue to treat Redis Streams as
+an optional live transport. If the durable workflow stack lands first, Redis
+StreamBridge can be added underneath it without changing workflow schema.
 
 ## PR 1: Runtime Architecture And Shared Contracts
 
