@@ -138,7 +138,7 @@ class AppConfig(BaseModel):
         default_factory=ModulesConfig,
         description=format_field_description(
             "modules",
-            field_doc="Optional DeerFlow module gates for durable workflow runtime primitives.",
+            field_doc="Optional DeerFlow module gates for durable workflows and generic work units.",
         ),
     )
     model_config = ConfigDict(extra="allow")

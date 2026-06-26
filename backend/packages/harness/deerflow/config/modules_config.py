@@ -13,11 +13,20 @@ class DurableWorkflowsConfig(BaseModel):
     auto_envelope_for_runs: bool = Field(default=True, description="Automatically bind API-created runs to workflow envelopes.")
 
 
+class WorkModuleConfig(BaseModel):
+    """Generic work unit module switches."""
+
+    enabled: bool = Field(default=True, description="Enable generic work unit storage and API support.")
+    api_enabled: bool = Field(default=True, description="Expose generic work unit APIs.")
+
+
 class ModulesConfig(BaseModel):
     """Feature gates for optional DeerFlow modules.
 
-    This module is intentionally small in the durable workflow runtime stack.
-    Higher-level modules can extend it with their own feature gates later.
+    The gates intentionally separate runtime primitives from generic work-unit
+    records. UI surfaces and PM-tool adapters can extend this config later
+    without being required by the durable runtime layer.
     """
 
     durable_workflows: DurableWorkflowsConfig = Field(default_factory=DurableWorkflowsConfig)
+    work: WorkModuleConfig = Field(default_factory=WorkModuleConfig)
