@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
+  ListPlus,
   MessageSquare,
   PanelRightClose,
   PanelRightOpen,
@@ -159,7 +160,7 @@ function buildWorkUnitPrompt(item: WorkUnit | undefined, userMessage: string) {
     "User request",
     userMessage,
     "",
-    "Use the Work Unit Context above as the authoritative task record. If the user asks you to execute or continue the work unit, act on this context rather than asking them to paste it again.",
+    "Use the Work Unit Context above as the authoritative work record. If the user asks you to execute or continue the work unit, act on this context rather than asking them to paste it again.",
     "If you need to change the Work Unit status, call the work_unit tool first and only claim the change after the tool returns ok=true.",
   ].join("\n");
 }
@@ -200,6 +201,13 @@ function itemMatchesSearch(item: WorkUnit, search: string) {
     .some((value) => String(value).toLowerCase().includes(query));
 }
 
+function parseBulkLines(value: string) {
+  return value
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-*]\s+/, ""))
+    .filter(Boolean);
+}
+
 function priorityTone(priority: string) {
   if (priority === "P0" || priority === "P1") return "bg-red-500/10 text-red-600 dark:text-red-300";
   if (priority === "P2") return "bg-amber-500/10 text-amber-600 dark:text-amber-300";
@@ -218,23 +226,28 @@ function relativeDate(value?: string) {
 
 export default function WorkPage() {
   const { data: modules } = useModuleFlags();
-  const workBoardEnabled = modules?.work_board.enabled !== false;
-  const workApiEnabled = modules?.work.api_enabled !== false;
+  const workApiEnabled = modules
+    ? modules.work.enabled && modules.work.api_enabled
+    : true;
   const { data: items = [], error } = useWorkUnits({
-    enabled: workBoardEnabled && workApiEnabled,
+    enabled: workApiEnabled,
   });
   const { agents } = useAgents();
   const createWorkUnit = useCreateWorkUnit();
+  const updateWorkUnit = useUpdateWorkUnit();
   const agentOptions = useMemo(() => agentOptionsFromDeerFlow(agents), [agents]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [bulkText, setBulkText] = useState("");
   const [priority, setPriority] = useState("P2");
   const [assigneeRef, setAssigneeRef] = useState(LEAD_AGENT_NAME);
   const [labels, setLabels] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [attentionFilter, setAttentionFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsedColumns, setCollapsedColumns] = useState<Record<string, boolean>>({});
@@ -243,11 +256,19 @@ export default function WorkPage() {
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (priorityFilter !== "all" && item.priority !== priorityFilter) return false;
+      if (assigneeFilter === "unassigned" && item.assignee_ref) return false;
+      if (
+        assigneeFilter !== "all" &&
+        assigneeFilter !== "unassigned" &&
+        item.assignee_ref !== assigneeFilter
+      ) {
+        return false;
+      }
       if (attentionFilter === "attention" && !itemNeedsAttention(item)) return false;
       if (attentionFilter === "runtime" && !isLinked(item)) return false;
       return itemMatchesSearch(item, search);
     });
-  }, [attentionFilter, items, priorityFilter, search]);
+  }, [assigneeFilter, attentionFilter, items, priorityFilter, search]);
 
   const columns = useMemo(() => groupByStatus(filteredItems), [filteredItems]);
   const selectedItem =
@@ -285,6 +306,28 @@ export default function WorkPage() {
     setCreateOpen(false);
   }
 
+  async function handleBulkSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const titles = parseBulkLines(bulkText);
+    if (titles.length === 0) return;
+    let lastCreated: WorkUnit | null = null;
+    for (const workTitle of titles) {
+      lastCreated = await createWorkUnit.mutateAsync({
+        title: workTitle,
+        status: "backlog",
+        priority,
+        assignee_ref: assigneeRef === "unassigned" ? undefined : assigneeRef,
+        labels: labelsFromText(labels),
+      });
+    }
+    if (lastCreated) setSelectedId(lastCreated.work_unit_id);
+    setBulkText("");
+    setAssigneeRef(LEAD_AGENT_NAME);
+    setLabels("");
+    setPriority("P2");
+    setBulkOpen(false);
+  }
+
   function openCreate() {
     setCreateOpen(true);
   }
@@ -296,17 +339,17 @@ export default function WorkPage() {
     }));
   }
 
-  if (!workBoardEnabled || !workApiEnabled) {
+  if (!workApiEnabled) {
     return (
       <WorkspaceContainer>
         <WorkspaceHeader />
         <WorkspaceBody>
           <div className="flex h-full w-full items-center justify-center p-6">
             <div className="max-w-md space-y-2 text-center">
-              <h1 className="text-xl font-semibold">WorkBoard disabled</h1>
+              <h1 className="text-xl font-semibold">Work Module disabled</h1>
               <p className="text-muted-foreground text-sm">
-                Enable the Work Module and WorkBoard in DeerFlow module config to
-                use this workspace surface.
+                Enable the Work Module in DeerFlow module config to use this
+                workspace surface.
               </p>
             </div>
           </div>
@@ -334,6 +377,15 @@ export default function WorkPage() {
               <SelectItem value="attention">Needs attention</SelectItem>
               <SelectItem value="runtime">Runtime linked</SelectItem>
             </FilterSelect>
+            <FilterSelect label="Agent" value={assigneeFilter} onValueChange={setAssigneeFilter}>
+              <SelectItem value="all">All agents</SelectItem>
+              {agentOptions.map((agent) => (
+                <SelectItem key={agent.name} value={agent.name}>
+                  {agent.name}
+                </SelectItem>
+              ))}
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+            </FilterSelect>
             <div className="relative min-w-60 flex-1">
               <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
@@ -347,6 +399,10 @@ export default function WorkPage() {
             <Button aria-label="New Work Unit" type="button" size="sm" onClick={() => openCreate()}>
               <PlusIcon />
               New
+            </Button>
+            <Button aria-label="Bulk capture Work Units" type="button" size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+              <ListPlus />
+              Bulk
             </Button>
             {errorMessage && <div className="text-destructive basis-full text-sm">{errorMessage}</div>}
           </div>
@@ -434,6 +490,84 @@ export default function WorkPage() {
                   <Button type="submit" disabled={createWorkUnit.isPending || !compact(title)}>
                     <PlusIcon />
                     Create Work Unit
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+            <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Bulk Capture Work Units</DialogTitle>
+                <DialogDescription>
+                  Paste one work unit title per line. New units start in backlog.
+                </DialogDescription>
+              </DialogHeader>
+              <form className="grid gap-4" onSubmit={(event) => void handleBulkSubmit(event)}>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium" htmlFor="work-bulk">
+                    Work units
+                  </label>
+                  <Textarea
+                    id="work-bulk"
+                    className="min-h-52 resize-none font-mono text-sm"
+                    placeholder={"PR 1: Durable workflow docs\nPR 2: Workflow store\nPR 3: Workflow APIs"}
+                    value={bulkText}
+                    onChange={(event) => setBulkText(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium">Priority</label>
+                    <Select value={priority} onValueChange={setPriority}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRIORITIES.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium">Agent</label>
+                    <Select value={assigneeRef} onValueChange={setAssigneeRef}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {agentOptions.map((agent) => (
+                          <SelectItem key={agent.name} value={agent.name}>
+                            {agent.name}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium" htmlFor="work-bulk-tags">
+                      Tags
+                    </label>
+                    <Input
+                      id="work-bulk-tags"
+                      placeholder="upstream, pr-stack"
+                      value={labels}
+                      onChange={(event) => setLabels(event.target.value)}
+                    />
+                  </div>
+                </div>
+                {errorMessage && <div className="text-destructive text-sm">{errorMessage}</div>}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setBulkOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createWorkUnit.isPending || parseBulkLines(bulkText).length === 0}>
+                    <ListPlus />
+                    Create {parseBulkLines(bulkText).length || ""} Work Units
                   </Button>
                 </DialogFooter>
               </form>
@@ -540,6 +674,14 @@ export default function WorkPage() {
               agents={agentOptions}
               collapsed={!detailPanelOpen}
               onToggle={() => setDetailPanelOpen((current) => !current)}
+              onAssign={(workUnitId, nextAssignee) =>
+                updateWorkUnit.mutate({
+                  workUnitId,
+                  request: {
+                    assignee_ref: nextAssignee === "unassigned" ? null : nextAssignee,
+                  },
+                })
+              }
             />
           </div>
           <div className="text-muted-foreground flex h-8 shrink-0 items-center gap-4 border-t px-4 text-xs">
@@ -612,7 +754,13 @@ function WorkUnitCard({
         <Badge variant="outline" className={priorityTone(item.priority)}>
           {priorityLabel(item.priority)}
         </Badge>
-        <Badge variant="outline">{item.status === "done" || item.status === "closed" ? "Verified" : "In Progress"}</Badge>
+        <Badge variant="outline">
+          {item.status === "done" || item.status === "closed"
+            ? "Verified"
+            : item.status === "backlog"
+              ? "Planned"
+              : "Agent managed"}
+        </Badge>
       </div>
       {item.description && (
         <div className="bg-muted/25 rounded-md border p-2">
@@ -654,11 +802,13 @@ function WorkUnitDetailPanel({
   agents,
   collapsed,
   onToggle,
+  onAssign,
 }: {
   item?: WorkUnit;
   agents: Array<{ name: string }>;
   collapsed: boolean;
   onToggle: () => void;
+  onAssign: (workUnitId: string, assigneeRef: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"overview" | "chat" | "trace">("overview");
 
@@ -740,10 +890,30 @@ function WorkUnitDetailPanel({
               <div className="grid grid-cols-2 gap-2">
                 <InfoCell label="Status" value={statusLabel(item.status)} />
                 <InfoCell label="Priority" value={priorityLabel(item.priority)} />
-                <InfoCell label="Agent" value={item.assignee_ref} />
                 <InfoCell label="Source" value={item.source ?? item.source_type} />
                 <InfoCell label="Updated" value={relativeDate(item.updated_at)} />
               </div>
+              <section className="space-y-2">
+                <div className="text-muted-foreground text-[11px] font-semibold uppercase">
+                  Assignment
+                </div>
+                <Select
+                  value={item.assignee_ref ?? "unassigned"}
+                  onValueChange={(value) => onAssign(item.work_unit_id, value)}
+                >
+                  <SelectTrigger aria-label="Assigned agent">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agents.map((agent) => (
+                      <SelectItem key={agent.name} value={agent.name}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                  </SelectContent>
+                </Select>
+              </section>
               <section className="space-y-2">
                 <div className="text-muted-foreground text-[11px] font-semibold uppercase">Runtime refs</div>
                 <RefRow label="workflow_id" value={item.workflow_id} />

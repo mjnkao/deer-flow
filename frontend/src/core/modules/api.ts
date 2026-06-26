@@ -10,9 +10,6 @@ export type ModuleFlags = {
     enabled: boolean;
     api_enabled: boolean;
   };
-  work_board: {
-    enabled: boolean;
-  };
 };
 
 export async function fetchModuleFlags(): Promise<ModuleFlags> {
