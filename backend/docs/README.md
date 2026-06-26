@@ -20,6 +20,7 @@ This directory contains detailed documentation for the DeerFlow backend.
 | [DURABLE_WORKFLOW_RUNTIME_PLAN.md](DURABLE_WORKFLOW_RUNTIME_PLAN.md) | Runtime-first PR plan for workflow identity, status, events, idempotency, lease, and recovery |
 | [DURABLE_WORKFLOW_FRONTDOOR.md](DURABLE_WORKFLOW_FRONTDOOR.md) | Durable workflow intake/frontdoor architecture and PR stack |
 | [DURABLE_WORKFLOW_PR_STACK.md](DURABLE_WORKFLOW_PR_STACK.md) | Prefix-safe upstream PR sequence for durable runtime, recovery, intake, and worker readiness |
+| [DEERFLOW_WORK_MODULE.md](DEERFLOW_WORK_MODULE.md) | Generic work unit module for agent and PM-tool integration |
 | [FILE_UPLOAD.md](FILE_UPLOAD.md) | File upload functionality |
 | [PATH_EXAMPLES.md](PATH_EXAMPLES.md) | Path types and usage examples |
 | [SANDBOX_MEMORY_PROFILING.md](SANDBOX_MEMORY_PROFILING.md) | Sandbox memory baseline and runtime comparison guide |
@@ -58,6 +59,7 @@ docs/
 ├── DURABLE_WORKFLOW_RUNTIME_PLAN.md # Runtime-first durable workflow PR plan
 ├── DURABLE_WORKFLOW_FRONTDOOR.md # Durable workflow frontdoor design
 ├── DURABLE_WORKFLOW_PR_STACK.md # Prefix-safe durable runtime PR sequence
+├── DEERFLOW_WORK_MODULE.md    # Generic work unit module plan
 ├── AUTO_TITLE_GENERATION.md   # Title generation
 ├── TITLE_GENERATION_IMPLEMENTATION.md  # Title implementation details
 └── TODO.md                    # Roadmap and issues
