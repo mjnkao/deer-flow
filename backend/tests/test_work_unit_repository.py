@@ -1,9 +1,11 @@
 """Tests for generic work unit stores."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from deerflow.persistence.work_units import WorkUnitRepository
-from deerflow.tools.builtins.work_unit_tool import build_work_unit_tool
+from deerflow.tools.builtins.work_unit_tool import _work_units_action, build_work_unit_tool
 from deerflow.work.units.store.memory import MemoryWorkUnitStore
 
 
@@ -144,5 +146,42 @@ class TestWorkUnitRepository:
             assert rejected["ok"] is False
             assert accepted["ok"] is True
             assert accepted["work_unit"]["status"] == "ready"
+        finally:
+            await _cleanup()
+
+    @pytest.mark.anyio
+    async def test_work_units_tool_creates_lists_and_updates_for_runtime_user(self, tmp_path):
+        await _make_repo(tmp_path)
+        runtime = SimpleNamespace(context={"user_id": "owner-1", "agent_name": "lead_agent"})
+        other_runtime = SimpleNamespace(context={"user_id": "owner-2", "agent_name": "lead_agent"})
+        try:
+            created = await _work_units_action(
+                runtime=runtime,
+                action="create",
+                title="Plan integration work",
+                description="Create a reusable PM mapping",
+                labels=["pm", "adapter"],
+            )
+            work_unit_id = created["work_unit"]["work_unit_id"]
+            listed = await _work_units_action(runtime=runtime, action="list")
+            rejected = await _work_units_action(
+                runtime=other_runtime,
+                action="update_status",
+                work_unit_id=work_unit_id,
+                status="ready",
+            )
+            updated = await _work_units_action(
+                runtime=runtime,
+                action="update_status",
+                work_unit_id=work_unit_id,
+                status="ready",
+                note="Ready for execution",
+            )
+
+            assert created["ok"] is True
+            assert listed["work_units"][0]["work_unit_id"] == work_unit_id
+            assert rejected["ok"] is False
+            assert updated["ok"] is True
+            assert updated["work_unit"]["status"] == "ready"
         finally:
             await _cleanup()
