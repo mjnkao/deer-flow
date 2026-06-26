@@ -15,4 +15,5 @@ async def get_modules() -> dict:
     modules = get_config().modules
     return {
         "durable_workflows": modules.durable_workflows.model_dump(),
+        "work": modules.work.model_dump(),
     }
