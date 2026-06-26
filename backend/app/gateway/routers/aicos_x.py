@@ -37,7 +37,8 @@ PROTECTED_AICOS_WRITE_TOOLS = {
     "aicos_work_unit_create",
     "aicos_work_unit_update",
     "aicos_work_criterion_upsert",
-    "aicos_context_packet_create",
+    "aicos_context_control_packet_create",
+    "aicos_context_control_packet_build",
     "aicos_runtime_invocation_start",
     "aicos_runtime_invocation_update",
     "aicos_runtime_event_record",
@@ -381,12 +382,17 @@ async def start_work(body: StartWorkRequest, request: Request) -> Any:
     )
     file_source_refs = _uploaded_file_source_refs(body.uploaded_files)
     packet = await _call_mcp_tool(
-        "aicos_context_packet_create",
+        "aicos_context_control_packet_build",
         {
             "operating_scope_key": body.operating_scope_key,
-            "idempotency_key": f"deerflow:start-work-context:{uuid.uuid4()}",
+            "idempotency_key": f"deerflow:start-work-context-build:{uuid.uuid4()}",
             "actor": actor,
             "work_unit_ref": work["work_unit_ref"],
+            "context_profile_key": "deerflow.lead_agent.execution.v1",
+            "packet_kind": "runtime_input",
+            "purpose": "execution",
+            "runtime": "deerflow",
+            "agent_ref": body.assigned_agent_ref or "lead_agent",
             "summary": body.instructions or body.objective or body.title,
             "source_refs": [
                 {
@@ -396,11 +402,12 @@ async def start_work(body: StartWorkRequest, request: Request) -> Any:
                 }
             ]
             + file_source_refs,
-            "environment_snapshot": {
-                "runtime": "deerflow",
+            "runtime_refs": {
+                "upload_thread_id": body.upload_thread_id,
+            },
+            "metadata": {
                 "surface": "workspace_dashboard",
                 "assigned_agent_ref": body.assigned_agent_ref or "lead_agent",
-                "upload_thread_id": body.upload_thread_id,
                 "planning_placement": body.metadata.get("planning_placement"),
             },
         },
@@ -448,24 +455,31 @@ async def chat_turn(body: ChatTurnRequest, request: Request) -> Any:
         )
         work_ref = created_work["work_unit_ref"]
 
+    thread_id = body.thread_id or str(uuid.uuid4())
     packet = await _call_mcp_tool(
-        "aicos_context_packet_create",
+        "aicos_context_control_packet_build",
         {
             "operating_scope_key": body.operating_scope_key,
-            "idempotency_key": f"deerflow:chat-context:{uuid.uuid4()}",
+            "idempotency_key": f"deerflow:chat-context-build:{uuid.uuid4()}",
             "actor": actor,
             "work_unit_ref": work_ref,
+            "context_profile_key": "deerflow.lead_agent.execution.v1",
+            "packet_kind": "runtime_input",
+            "purpose": "execution",
+            "runtime": "deerflow",
+            "agent_ref": body.agentId or body.agentRef or "lead_agent",
             "summary": body.message[:500],
-            "message_refs": [{"kind": "dashboard_chat", "summary": body.message[:500]}],
-            "environment_snapshot": {
-                "runtime": "deerflow",
-                "agent": body.agentId or body.agentRef or "lead_agent",
+            "source_refs": [{"kind": "dashboard_chat", "ref": f"dashboard-chat:{uuid.uuid4()}", "summary": body.message[:500]}],
+            "runtime_refs": {
+                "thread_id": thread_id,
+            },
+            "metadata": {
+                "surface": "workspace_dashboard_chat",
                 "mode": body.mode or "ultra",
             },
         },
     )
 
-    thread_id = body.thread_id or str(uuid.uuid4())
     requested_agent = body.agentId or body.agentRef
     agent_name = requested_agent if requested_agent and requested_agent != "lead_agent" else None
     mode = body.mode or "ultra"
