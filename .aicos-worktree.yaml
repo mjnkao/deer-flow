@@ -1,0 +1,6 @@
+schema_version: aicos.worktree_assignment.v1
+project_id: deerflow-x
+work_item_key: WU-000021
+work_assignment_id: cac0d10c-d395-4f9a-ad5a-3f7db4ecfa2d
+agent_id: codex
+branch_slug: durable-runtime-stack
