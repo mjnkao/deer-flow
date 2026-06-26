@@ -1,12 +1,35 @@
 # Durable Workflow PR Stack
 
 Status: working stack
-Date: 2026-06-26
+Date: 2026-06-27
 
 This stack is ordered for upstream review. PR 1-5 is the first community-visible
 milestone: existing DeerFlow run APIs keep their current behavior, but each run
 also has durable workflow identity, idempotency, lifecycle events, and an
 inspectable trace.
+
+The roadmap continues beyond the runtime layer because durable workflow
+identity is most useful when operators can assign, observe, and recover real
+work. The follow-up module track keeps that product value visible while
+preserving the runtime boundary:
+
+- runtime core PRs make every run/workflow traceable and recoverable;
+- Work Module PRs add generic Work Units that can map to Jira, ClickUp, Plane,
+  Trello, Lark, GitHub Issues, or internal PM tools;
+- WorkBoard PRs add a built-in Kanban surface for teams that do not already
+  have a PM system connected;
+- workflow design PRs add authoring/versioning for repeatable agent workflows
+  after the runtime and work primitives are stable.
+
+Draft upstream PRs currently opened from this roadmap:
+
+- #3813: runtime architecture docs.
+- #3814: durable workflow store/schema/events.
+- #3815: workflow read APIs and timeline projection.
+- #3816: run wrapper and workflow trace binding.
+- #3817: generic Work Module core.
+- #3818: agent-facing Work Unit tools.
+- #3819: WorkBoard MVP.
 
 ## Review Principles
 
@@ -250,6 +273,8 @@ required for a minimal durable runtime deployment.
 
 ### PR 11: Work Module Schema And API
 
+Current draft: #3817.
+
 - Add `DEERFLOW_WORK_MODULE.md`.
 - Add `work_units` and `work_events` schema/migration.
 - Add memory and SQL stores.
@@ -258,12 +283,28 @@ required for a minimal durable runtime deployment.
 
 ### PR 12: WorkBoard MVP
 
+Current draft: #3819.
+
 - Add `/workspace/work`.
 - Show Trello-style columns over `work_units.status`.
 - Create local work units.
 - Show runtime-driven status projection; local human-created work starts in
   `backlog`.
 - Link cards to chat threads and workflow traces when refs exist.
+- Support the practical operating model where long-running contribution work,
+  such as a stack of upstream PRs, can be represented as Work Units assigned
+  to agents and tracked through backlog, ready, running, waiting, review, done,
+  and closed states.
+
+### PR 12b: Agent Work Unit Tools
+
+Current draft: #3818.
+
+- Add a general `work_units` tool for create/list/get/update_status.
+- Scope tool access by runtime user identity.
+- Require agents to call a tool before claiming Work Unit status changed.
+- Keep WorkBoard thin: the board observes and chats, while agent/runtime tools
+  mutate Work Unit state.
 
 ### PR 13: External PM Binding Contract
 
