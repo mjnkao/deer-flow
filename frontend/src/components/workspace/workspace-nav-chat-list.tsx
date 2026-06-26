@@ -1,6 +1,6 @@
 "use client";
 
-import { BotIcon, MessagesSquare } from "lucide-react";
+import { BotIcon, ClipboardList, MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -11,10 +11,13 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useI18n } from "@/core/i18n/hooks";
+import { useModuleFlags } from "@/core/modules";
 
 export function WorkspaceNavChatList() {
   const { t } = useI18n();
   const pathname = usePathname();
+  const { data: modules } = useModuleFlags();
+  const showWorkBoard = modules?.work_board.enabled === true;
   return (
     <SidebarGroup className="pt-1">
       <SidebarMenu>
@@ -37,6 +40,19 @@ export function WorkspaceNavChatList() {
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
+        {showWorkBoard && (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname.startsWith("/workspace/work")}
+              asChild
+            >
+              <Link className="text-muted-foreground" href="/workspace/work">
+                <ClipboardList />
+                <span>{t.sidebar.work}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )}
       </SidebarMenu>
     </SidebarGroup>
   );

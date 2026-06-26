@@ -12,6 +12,7 @@ import React, {
 
 import { isStaticWebsiteOnly } from "../static-mode";
 
+import { authApiUrl } from "./client";
 import { type User, buildLoginUrl } from "./types";
 
 // Re-export for consumers
@@ -71,7 +72,7 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
 
     try {
       setIsLoading(true);
-      const res = await fetch("/api/v1/auth/me", {
+      const res = await fetch(authApiUrl("/api/v1/auth/me"), {
         credentials: "include",
       });
 
@@ -116,7 +117,7 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
 
     let logoutFailed = false;
     try {
-      const res = await fetch("/api/v1/auth/logout", {
+      const res = await fetch(authApiUrl("/api/v1/auth/logout"), {
         method: "POST",
         credentials: "include",
       });

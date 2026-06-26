@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/core/auth/AuthProvider";
+import { authApiUrl } from "@/core/auth/client";
 import { userSchema, type User } from "@/core/auth/types";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -48,7 +49,7 @@ export function GatewayOfflineBanner({
       let errored = false;
       let parsedUser: User | null = null;
       try {
-        res = await fetch("/api/v1/auth/me", {
+        res = await fetch(authApiUrl("/api/v1/auth/me"), {
           credentials: "include",
           cache: "no-store",
         });

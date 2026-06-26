@@ -146,6 +146,12 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class CsrfTokenResponse(BaseModel):
+    """CSRF token response for browser clients with an active session."""
+
+    csrf_token: str
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
@@ -414,6 +420,28 @@ async def get_me(request: Request):
         needs_setup=user.needs_setup,
         oauth_provider=user.oauth_provider,
     )
+
+
+@router.get("/csrf", response_model=CsrfTokenResponse)
+async def issue_csrf_token(request: Request, response: Response):
+    """Issue a JS-readable CSRF token for the current authenticated session.
+
+    Browsers can keep an HttpOnly access_token cookie across frontend reloads
+    while missing the non-HttpOnly csrf_token cookie (for example after a
+    local DB/reset or older login flow). This safe GET endpoint lets the
+    frontend recover before its next state-changing request without forcing a
+    logout/login cycle.
+    """
+    await get_current_user_from_request(request)
+    csrf_token = generate_csrf_token()
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,
+        secure=is_secure_request(request),
+        samesite="strict",
+    )
+    return CsrfTokenResponse(csrf_token=csrf_token)
 
 
 # Per-IP cache: ip → (timestamp, result_dict).

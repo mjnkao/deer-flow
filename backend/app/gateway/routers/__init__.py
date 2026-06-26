@@ -1,3 +1,16 @@
-from . import artifacts, assistants_compat, mcp, models, skills, suggestions, thread_runs, threads, uploads
+from . import artifacts, assistants_compat, mcp, models, modules, skills, suggestions, thread_runs, threads, uploads, work_units, workflows
 
-__all__ = ["artifacts", "assistants_compat", "mcp", "models", "skills", "suggestions", "threads", "thread_runs", "uploads"]
+__all__ = [
+    "artifacts",
+    "assistants_compat",
+    "mcp",
+    "models",
+    "modules",
+    "skills",
+    "suggestions",
+    "threads",
+    "thread_runs",
+    "uploads",
+    "work_units",
+    "workflows",
+]

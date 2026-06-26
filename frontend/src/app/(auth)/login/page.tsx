@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/core/auth/AuthProvider";
+import { authApiUrl } from "@/core/auth/client";
 import { parseAuthError } from "@/core/auth/types";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -89,7 +90,9 @@ export default function LoginPage() {
   useEffect(() => {
     let cancelled = false;
 
-    void fetch("/api/v1/auth/setup-status")
+    void fetch(authApiUrl("/api/v1/auth/setup-status"), {
+      credentials: "include",
+    })
       .then((r) => r.json())
       .then((data: { needs_setup?: boolean }) => {
         if (!cancelled && data.needs_setup) {
@@ -101,7 +104,9 @@ export default function LoginPage() {
       });
 
     // Fetch SSO providers
-    void fetch("/api/v1/auth/providers")
+    void fetch(authApiUrl("/api/v1/auth/providers"), {
+      credentials: "include",
+    })
       .then((r) => r.json())
       .then(
         (data: {
@@ -129,8 +134,8 @@ export default function LoginPage() {
 
     try {
       const endpoint = isLogin
-        ? "/api/v1/auth/login/local"
-        : "/api/v1/auth/register";
+        ? authApiUrl("/api/v1/auth/login/local")
+        : authApiUrl("/api/v1/auth/register");
       const body = isLogin
         ? `username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
         : JSON.stringify({ email, password });
@@ -254,7 +259,9 @@ export default function LoginPage() {
                 className="w-full"
                 disabled={loading}
                 onClick={() => {
-                  window.location.href = `/api/v1/auth/oauth/${provider.id}?next=${encodeURIComponent(redirectPath)}`;
+                  window.location.href = authApiUrl(
+                    `/api/v1/auth/oauth/${provider.id}?next=${encodeURIComponent(redirectPath)}`,
+                  );
                 }}
               >
                 {t.login.continueWith(provider.display_name)}

@@ -1,3 +1,4 @@
+import { authApiUrl } from "@/core/auth/client";
 import { buildLoginUrl } from "@/core/auth/types";
 
 /** HTTP methods that the gateway's CSRFMiddleware checks. */
@@ -15,6 +16,27 @@ export function isStateChangingMethod(method: string): boolean {
 }
 
 const CSRF_COOKIE_PREFIX = "csrf_token=";
+let authRedirectStarted = false;
+let csrfRefreshPromise: Promise<string | null> | null = null;
+
+async function resolveAuthRedirectTarget(returnPath: string): Promise<string> {
+  try {
+    const response = await globalThis.fetch(
+      authApiUrl("/api/v1/auth/setup-status"),
+      {
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
+    if (response.ok) {
+      const data = (await response.json()) as { needs_setup?: boolean };
+      if (data.needs_setup) return "/setup";
+    }
+  } catch {
+    // Fall through to login; the auth pages can surface gateway/setup errors.
+  }
+  return buildLoginUrl(returnPath);
+}
 
 /**
  * Read the ``csrf_token`` cookie set by the gateway at login.
@@ -34,6 +56,33 @@ export function readCsrfCookie(): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Return a CSRF token, minting one from the authenticated gateway session when
+ * the browser has an access_token cookie but no csrf_token cookie yet.
+ */
+export async function ensureCsrfToken(): Promise<string | null> {
+  const existing = readCsrfCookie();
+  if (existing) return existing;
+  if (typeof window === "undefined") return null;
+
+  csrfRefreshPromise ??= globalThis
+    .fetch(authApiUrl("/api/v1/auth/csrf"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+    .then(async (response) => {
+      if (!response.ok) return null;
+      const data = (await response.json()) as { csrf_token?: unknown };
+      return typeof data.csrf_token === "string" ? data.csrf_token : null;
+    })
+    .catch(() => null)
+    .finally(() => {
+      csrfRefreshPromise = null;
+    });
+
+  return csrfRefreshPromise;
 }
 
 /**
@@ -63,7 +112,7 @@ export async function fetch(
   // it to mirror the gateway's ``should_check_csrf`` logic exactly.
   let headers = init?.headers;
   if (isStateChangingMethod(init?.method ?? "GET")) {
-    const token = readCsrfCookie();
+    const token = await ensureCsrfToken();
     if (token) {
       // Fresh Headers instance so we don't mutate caller-supplied objects.
       const merged = new Headers(headers);
@@ -81,7 +130,13 @@ export async function fetch(
   });
 
   if (res.status === 401) {
-    window.location.href = buildLoginUrl(window.location.pathname);
+    if (!authRedirectStarted) {
+      authRedirectStarted = true;
+      const path = window.location.pathname;
+      if (path !== "/login" && path !== "/setup") {
+        window.location.href = await resolveAuthRedirectTarget(path);
+      }
+    }
     throw new Error("Unauthorized");
   }
 

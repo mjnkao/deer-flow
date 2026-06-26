@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetch, getCsrfHeaders } from "@/core/api/fetcher";
 import { useAuth } from "@/core/auth/AuthProvider";
+import { authApiUrl } from "@/core/auth/client";
 import { parseAuthError } from "@/core/auth/types";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -39,7 +40,7 @@ export function AccountSettingsPage() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/auth/change-password", {
+      const res = await fetch(authApiUrl("/api/v1/auth/change-password"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

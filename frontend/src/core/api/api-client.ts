@@ -11,7 +11,7 @@ import {
 } from "../threads/static-demo";
 import type { AgentThreadState } from "../threads/types";
 
-import { isStateChangingMethod, readCsrfCookie } from "./fetcher";
+import { ensureCsrfToken, isStateChangingMethod } from "./fetcher";
 import { sanitizeRunStreamOptions } from "./stream-mode";
 
 /**
@@ -25,17 +25,22 @@ import { sanitizeRunStreamOptions } from "./stream-mode";
  * share :func:`readCsrfCookie` and :const:`STATE_CHANGING_METHODS` so
  * the contract stays in lockstep.
  */
-function injectCsrfHeader(_url: URL, init: RequestInit): RequestInit {
-  if (!isStateChangingMethod(init.method ?? "GET")) {
-    return init;
+async function injectCsrfHeader(
+  _url: URL,
+  init: RequestInit,
+): Promise<RequestInit> {
+  const nextInit: RequestInit = { ...init, credentials: "include" };
+
+  if (!isStateChangingMethod(nextInit.method ?? "GET")) {
+    return nextInit;
   }
-  const token = readCsrfCookie();
-  if (!token) return init;
-  const headers = new Headers(init.headers);
+  const token = await ensureCsrfToken();
+  if (!token) return nextInit;
+  const headers = new Headers(nextInit.headers);
   if (!headers.has("X-CSRF-Token")) {
     headers.set("X-CSRF-Token", token);
   }
-  return { ...init, headers };
+  return { ...nextInit, headers };
 }
 
 export function isInactiveRunStreamError(error: unknown): boolean {
