@@ -1,0 +1,1 @@
+"""Generic work module primitives."""
