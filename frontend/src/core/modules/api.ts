@@ -6,6 +6,10 @@ export type ModuleFlags = {
     api_enabled: boolean;
     auto_envelope_for_runs: boolean;
   };
+  work: {
+    enabled: boolean;
+    api_enabled: boolean;
+  };
 };
 
 export async function fetchModuleFlags(): Promise<ModuleFlags> {
