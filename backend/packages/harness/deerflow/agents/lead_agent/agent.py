@@ -45,6 +45,7 @@ from deerflow.config.app_config import AppConfig, get_app_config
 from deerflow.models import create_chat_model
 from deerflow.skills.tool_policy import filter_tools_by_skill_allowed_tools
 from deerflow.skills.types import Skill
+from deerflow.tools.builtins.work_unit_tool import build_work_unit_tool
 from deerflow.tracing import build_tracing_callbacks
 
 logger = logging.getLogger(__name__)
@@ -527,9 +528,21 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
     # Custom agents can update their own SOUL.md / config via update_agent.
     # The default agent (no agent_name) does not see this tool.
     extra_tools = [update_agent] if agent_name else []
+    runtime_tools = []
+    bound_work_unit_id = str(cfg.get("work_unit_id") or "").strip()
+    if bound_work_unit_id and resolved_app_config.modules.work.enabled:
+        runtime_tools.append(
+            build_work_unit_tool(
+                work_unit_id=bound_work_unit_id,
+                actor_ref=f"agent:{agent_name or 'lead_agent'}",
+                user_id=str(cfg.get("user_id") or "") or None,
+                workflow_id=str(cfg.get("workflow_id") or "") or None,
+                run_id=str(cfg.get("run_id") or "") or None,
+            )
+        )
     # Default lead agent (unchanged behavior)
     raw_tools = get_available_tools(model_name=model_name, groups=agent_config.tool_groups if agent_config else None, subagent_enabled=subagent_enabled, app_config=resolved_app_config)
-    filtered = filter_tools_by_skill_allowed_tools(raw_tools + extra_tools, skills_for_tool_policy)
+    filtered = filter_tools_by_skill_allowed_tools(raw_tools + extra_tools, skills_for_tool_policy) + runtime_tools
     final_tools, setup = assemble_deferred_tools(filtered, enabled=resolved_app_config.tool_search.enabled)
     return create_agent(
         model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled, reasoning_effort=reasoning_effort, app_config=resolved_app_config, attach_tracing=False),

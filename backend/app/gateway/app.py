@@ -29,6 +29,7 @@ from app.gateway.routers import (
     thread_runs,
     threads,
     uploads,
+    work_units,
     workflows,
 )
 from deerflow.config import app_config as deerflow_app_config
@@ -225,6 +226,13 @@ def _openapi_tags(config: AppConfig) -> list[dict[str, str]]:
             {
                 "name": "workflows",
                 "description": "Durable workflow runtime envelopes and lifecycle events",
+            }
+        )
+    if config.modules.work.enabled and config.modules.work.api_enabled:
+        tags.append(
+            {
+                "name": "work-units",
+                "description": "Generic work units for agent and PM-tool integration",
             }
         )
     return tags
@@ -436,6 +444,10 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
     # Durable workflow runtime read API
     if startup_config.modules.durable_workflows.api_enabled:
         app.include_router(workflows.router)
+
+    # Generic work unit API
+    if startup_config.modules.work.enabled and startup_config.modules.work.api_enabled:
+        app.include_router(work_units.router)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

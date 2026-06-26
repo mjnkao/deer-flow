@@ -27,12 +27,16 @@ log_level: info
 # Optional Modules
 # ============================================================================
 # These gates are startup-only: restart the gateway after changing them.
-# Durable workflows are the small runtime identity/trace layer.
+# Durable workflows are the small runtime identity/trace layer. Work is the
+# generic work unit module for agent and PM-tool integration.
 modules:
   durable_workflows:
     enabled: true
     api_enabled: true
     auto_envelope_for_runs: true
+  work:
+    enabled: true
+    api_enabled: true
 
 # ============================================================================
 # Token Usage

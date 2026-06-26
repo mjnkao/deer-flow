@@ -31,6 +31,7 @@ from deerflow.persistence.feedback import FeedbackRepository
 from deerflow.runtime import RunContext, RunManager, StreamBridge
 from deerflow.runtime.events.store.base import RunEventStore
 from deerflow.runtime.runs.store.base import RunStore
+from deerflow.work.units.store.base import WorkUnitStore
 from deerflow.runtime.workflows.store.base import WorkflowStore
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,10 @@ async def langgraph_runtime(app: FastAPI, startup_config: AppConfig) -> AsyncGen
             from deerflow.persistence.run import RunRepository
 
             app.state.run_store = RunRepository(sf)
+            if config.modules.work.enabled:
+                from deerflow.persistence.work_units import WorkUnitRepository
+
+                app.state.work_unit_store = WorkUnitRepository(sf)
             if config.modules.durable_workflows.enabled:
                 from deerflow.persistence.workflow import WorkflowRepository
 
@@ -200,6 +205,10 @@ async def langgraph_runtime(app: FastAPI, startup_config: AppConfig) -> AsyncGen
             from deerflow.runtime.runs.store.memory import MemoryRunStore
 
             app.state.run_store = MemoryRunStore()
+            if config.modules.work.enabled:
+                from deerflow.work.units.store.memory import MemoryWorkUnitStore
+
+                app.state.work_unit_store = MemoryWorkUnitStore()
             if config.modules.durable_workflows.enabled:
                 from deerflow.runtime.workflows.store.memory import MemoryWorkflowStore
 
@@ -270,6 +279,7 @@ get_run_event_store: Callable[[Request], RunEventStore] = _require("run_event_st
 get_feedback_repo: Callable[[Request], FeedbackRepository] = _require("feedback_repo", "Feedback")
 get_run_store: Callable[[Request], RunStore] = _require("run_store", "Run store")
 get_workflow_store: Callable[[Request], WorkflowStore] = _require("workflow_store", "Workflow store")
+get_work_unit_store: Callable[[Request], WorkUnitStore] = _require("work_unit_store", "Work unit store")
 
 
 def get_store(request: Request):

@@ -58,6 +58,11 @@ class Permissions:
     RUNS_READ = "runs:read"
     RUNS_CANCEL = "runs:cancel"
 
+    # Work module
+    WORK_READ = "work:read"
+    WORK_CREATE = "work:create"
+    WORK_UPDATE = "work:update"
+
 
 class AuthContext:
     """Authentication context for the current request.
@@ -116,6 +121,9 @@ _ALL_PERMISSIONS: list[str] = [
     Permissions.RUNS_CREATE,
     Permissions.RUNS_READ,
     Permissions.RUNS_CANCEL,
+    Permissions.WORK_READ,
+    Permissions.WORK_CREATE,
+    Permissions.WORK_UPDATE,
 ]
 
 
