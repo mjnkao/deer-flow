@@ -48,6 +48,30 @@ def _timeline_sort_key(row: dict) -> tuple[str, int, int]:
     return created_at, kind_order, int(seq) if isinstance(seq, int) else 0
 
 
+def _recovery_hints(workflow: dict, run: dict | None) -> list[dict]:
+    hints: list[dict] = []
+    status = workflow.get("status")
+    if status == "orphaned":
+        hints.append(
+            {
+                "code": "workflow_orphaned",
+                "severity": "warning",
+                "safe_auto_resume": False,
+                "message": "The gateway restarted while this workflow was active. DeerFlow marked it orphaned because the process-local run task is gone.",
+            }
+        )
+    if run and run.get("status") == "error" and status in {"orphaned", "failed"}:
+        hints.append(
+            {
+                "code": "bound_run_error",
+                "severity": "info",
+                "run_id": run.get("run_id"),
+                "message": "The bound DeerFlow run is terminal error. Inspect run events before retrying or resubmitting the workflow.",
+            }
+        )
+    return hints
+
+
 @router.get("")
 @require_permission("runs", "read")
 async def list_workflows(
@@ -147,6 +171,7 @@ async def get_workflow_timeline(
     return {
         "workflow": workflow,
         "run": run,
+        "recovery_hints": _recovery_hints(workflow, run),
         "timeline": timeline[:limit],
         "workflow_events": workflow_events,
         "run_events": run_events,
