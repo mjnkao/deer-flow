@@ -37,6 +37,7 @@ from deerflow.runtime import (
     run_agent,
 )
 from deerflow.runtime.runs.naming import resolve_root_run_name
+from deerflow.runtime.workflows import WorkflowBindingStatus, resolve_workflow_binding
 from deerflow.runtime.user_context import reset_current_user, set_current_user
 
 logger = logging.getLogger(__name__)
@@ -372,6 +373,20 @@ def _workflow_kind_for_run(body: Any) -> str:
     return "message"
 
 
+def _requested_checkpoint_refs(body: Any) -> tuple[str | None, str | None]:
+    checkpoint_ns: str | None = None
+    checkpoint_id = getattr(body, "checkpoint_id", None)
+    checkpoint = getattr(body, "checkpoint", None)
+    if isinstance(checkpoint, Mapping):
+        raw_checkpoint_ns = checkpoint.get("checkpoint_ns")
+        raw_checkpoint_id = checkpoint.get("checkpoint_id")
+        if raw_checkpoint_ns is not None:
+            checkpoint_ns = str(raw_checkpoint_ns)
+        if raw_checkpoint_id is not None:
+            checkpoint_id = str(raw_checkpoint_id)
+    return checkpoint_ns, str(checkpoint_id) if checkpoint_id is not None else None
+
+
 def _auto_workflow_envelopes_enabled() -> bool:
     modules = get_app_config().modules
     return modules.durable_workflows.enabled and modules.durable_workflows.auto_envelope_for_runs
@@ -383,6 +398,12 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
     external_message_ref = request.headers.get("X-External-Message-Ref")
     route_path = str(getattr(getattr(request, "url", None), "path", None) or "/api/runs")
     method = str(getattr(request, "method", None) or "POST")
+    checkpoint_ns, checkpoint_id = _requested_checkpoint_refs(body)
+    binding_decision = resolve_workflow_binding(
+        explicit_thread_id=thread_id,
+        explicit_checkpoint_ns=checkpoint_ns,
+        explicit_checkpoint_id=checkpoint_id,
+    )
     workflow, created = await workflow_store.create_or_get(
         workflow_kind=_workflow_kind_for_run(body),
         source_type="api",
@@ -394,11 +415,14 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
         sender_ref=_request_user_id(request, owner_user_id),
         user_id=_request_user_id(request, owner_user_id),
         thread_id=thread_id,
-        status="received",
+        checkpoint_ns=checkpoint_ns,
+        checkpoint_id=checkpoint_id,
+        status="bound" if binding_decision.status == WorkflowBindingStatus.resolved else "received",
         metadata={
             "assistant_id": getattr(body, "assistant_id", None),
             "route": route_path,
             "method": method,
+            "binding": binding_decision.to_metadata(),
         },
     )
     if not created and workflow.get("run_id"):
@@ -419,6 +443,17 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
         idempotency_key=idempotency_key,
         content={"thread_id": thread_id, "source": route_path},
     )
+    if created and binding_decision.status == WorkflowBindingStatus.resolved:
+        await workflow_store.append_event(
+            workflow["workflow_id"],
+            event_type="workflow.bound",
+            category="binding",
+            thread_id=binding_decision.thread_id,
+            run_id=binding_decision.run_id,
+            checkpoint_ns=binding_decision.checkpoint_ns,
+            checkpoint_id=binding_decision.checkpoint_id,
+            metadata=binding_decision.to_metadata(),
+        )
     return workflow
 
 
