@@ -146,3 +146,33 @@ def test_workflow_by_run_and_timeline_merges_run_events():
         "messages",
         "workflow.succeeded",
     ]
+
+
+def test_workflow_timeline_includes_waiting_recovery_hint():
+    workflow_store = MemoryWorkflowStore()
+    run_store = MemoryRunStore()
+    asyncio.run(
+        workflow_store.create_or_get(
+            workflow_id="wf-waiting",
+            source_type="api",
+            source="/api/runs/wait",
+            status="waiting",
+            thread_id="thread-1",
+            run_id="run-wait",
+        )
+    )
+    asyncio.run(run_store.put("run-wait", thread_id="thread-1", status="interrupted"))
+
+    with _make_client(workflow_store, run_store=run_store) as client:
+        timeline = client.get("/api/workflows/wf-waiting/timeline").json()
+
+    assert timeline["workflow"]["status"] == "waiting"
+    assert timeline["run"]["status"] == "interrupted"
+    assert timeline["recovery_hints"] == [
+        {
+            "code": "workflow_waiting",
+            "severity": "info",
+            "safe_auto_resume": False,
+            "message": "The bound run is interrupted and the workflow is waiting for a LangGraph resume or a new human input.",
+        }
+    ]

@@ -60,6 +60,15 @@ def _recovery_hints(workflow: dict, run: dict | None) -> list[dict]:
                 "message": "The gateway restarted while this workflow was active. DeerFlow marked it orphaned because the process-local run task is gone.",
             }
         )
+    if status == "waiting":
+        hints.append(
+            {
+                "code": "workflow_waiting",
+                "severity": "info",
+                "safe_auto_resume": False,
+                "message": "The bound run is interrupted and the workflow is waiting for a LangGraph resume or a new human input.",
+            }
+        )
     if run and run.get("status") == "error" and status in {"orphaned", "failed"}:
         hints.append(
             {
