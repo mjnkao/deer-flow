@@ -1,7 +1,7 @@
 # Durable Workflow PR Stack
 
 Status: working stack
-Date: 2026-06-26
+Date: 2026-06-27
 
 This stack is ordered for upstream review. PR 1-5 is the first community-visible
 milestone: existing DeerFlow run APIs keep their current behavior, but each run
@@ -20,9 +20,10 @@ inspectable trace.
   memory, interrupts, and resume semantics.
 - DeerFlow owns intake identity, workflow status projection, idempotency,
   run/checkpoint references, channel/API routing, and runtime observability.
-- The optional DeerFlow Work Module may map workflow ids to generic Work Units,
-  and external adapters may map those Work Units to domain task/card/issue
-  systems. Those mappings live outside this runtime stack.
+- The optional DeerFlow Work Module may map workflow ids to generic Work Units.
+  DeerFlow core should define enough external-ref metadata for PM systems to
+  integrate later, but this stack does not implement Jira, ClickUp, Plane,
+  Trello, or Lark bindings.
 
 ## PR 1: Runtime Architecture And Shared Contracts
 
@@ -203,6 +204,8 @@ testable.
 
 ### PR 6: Recovery And Orphan Reconciliation
 
+Status: implemented in `codex/deerflow-durable-recovery`.
+
 - Reconcile active workflows with existing run reconciliation at gateway
   startup.
 - Mark `running` / `run_created` workflows as `orphaned` when process-local
@@ -211,11 +214,15 @@ testable.
 
 ### PR 7: Deterministic Binding Resolver
 
+Status: implemented in `codex/deerflow-durable-binding-resolver`.
+
 - Normalize explicit thread/run/checkpoint/source bindings.
 - Persist ambiguous candidates instead of guessing.
 - Give channel adapters a generic binding contract.
 
 ### PR 8: Channel And Dashboard Intake Adoption
+
+Status: implemented in `codex/deerflow-durable-channel-intake`.
 
 - Route Slack/Discord/Telegram-style adapters through workflow intake.
 - Use stable external message ids as idempotency keys.
@@ -223,21 +230,27 @@ testable.
 
 ### PR 9: Durable Waiting And Resume Refs
 
+Status: implemented in `codex/deerflow-durable-waiting-resume`.
+
 - Represent LangGraph interrupt waits as durable workflow state.
 - Route resume commands through workflow intake.
 - Keep actual interrupt payloads in LangGraph checkpoint state.
 
 ### PR 10: Worker Pool Readiness
 
+Status: implemented in `codex/deerflow-workflow-worker-readiness`.
+
 - Add worker identity and lease renewal.
-- Add a claim loop abstraction behind a feature flag.
+- Prepare the store contract for future worker processes without enabling a
+  separate worker pool by default.
 - Keep gateway process execution as the default mode.
 
 ## Next Module Tracks
 
 The following tracks should remain separate from the runtime PRs:
 
-- Work Module: generic Work Unit records and external PM mappings.
+- Work Module: generic Work Unit records with external-ref fields that make PM
+  adapters possible later.
 - WorkBoard: built-in board UI for deployments without a PM tool.
 - Workflow Designer: visual workflow definition authoring and versioning.
 - Optional orchestrator adapters: Restate, Temporal, Hatchet integration
@@ -267,10 +280,10 @@ required for a minimal durable runtime deployment.
 
 ### PR 13: External PM Binding Contract
 
-- Define adapter mapping for Jira/Trello/ClickUp/Plane/Lark-style work
-  objects.
+- Define adapter mapping for Jira/Trello/ClickUp/Plane/Lark-style work objects.
 - Add external ref/url/source conventions.
 - Keep credentials, webhooks, sync cursors, and conflict policy in adapters.
+- Do not implement concrete PM connectors in the core stack.
 
 ### PR 14: Work Gates And Criteria
 
