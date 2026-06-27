@@ -95,6 +95,17 @@ class WorkflowStore(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def mark_orphaned(
+        self,
+        workflow_id: str,
+        *,
+        error: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Mark a workflow as orphaned and clear active worker ownership."""
+        pass
+
+    @abc.abstractmethod
     async def append_event(
         self,
         workflow_id: str,
