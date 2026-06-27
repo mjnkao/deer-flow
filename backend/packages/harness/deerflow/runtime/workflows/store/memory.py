@@ -200,6 +200,25 @@ class MemoryWorkflowStore(WorkflowStore):
         row["updated_at"] = self._now()
         return True
 
+    async def mark_orphaned(
+        self,
+        workflow_id: str,
+        *,
+        error: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        row = self._workflows.get(workflow_id)
+        if row is None:
+            return False
+        row["status"] = "orphaned"
+        row["error"] = error
+        row["lease_owner"] = None
+        row["lease_expires_at"] = None
+        if metadata:
+            row["metadata"] = {**(row.get("metadata") or {}), **metadata}
+        row["updated_at"] = self._now()
+        return True
+
     async def append_event(
         self,
         workflow_id: str,

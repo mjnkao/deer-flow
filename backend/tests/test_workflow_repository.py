@@ -101,6 +101,28 @@ async def test_memory_workflow_store_claim_and_release_for_retry():
 
 
 @pytest.mark.anyio
+async def test_memory_workflow_store_mark_orphaned_clears_lease():
+    store = MemoryWorkflowStore()
+    workflow, _ = await store.create_or_get(source_type="api", source="dashboard", max_attempts=2)
+
+    claimed = await store.claim_next(lease_owner="worker-1", lease_seconds=30)
+    marked = await store.mark_orphaned(
+        workflow["workflow_id"],
+        error="gateway restarted",
+        metadata={"recovery": "gateway_restart_orphan"},
+    )
+    row = await store.get(workflow["workflow_id"])
+
+    assert claimed["lease_owner"] == "worker-1"
+    assert marked is True
+    assert row["status"] == "orphaned"
+    assert row["error"] == "gateway restarted"
+    assert row["lease_owner"] is None
+    assert row["lease_expires_at"] is None
+    assert row["metadata"] == {"recovery": "gateway_restart_orphan"}
+
+
+@pytest.mark.anyio
 async def test_memory_workflow_store_appends_events_in_order():
     store = MemoryWorkflowStore()
     workflow, _ = await store.create_or_get(workflow_id="wf-memory-events", source_type="api")
@@ -275,6 +297,35 @@ class TestWorkflowRepository:
             assert claimed_again["lease_owner"] == "worker-2"
             assert claimed_again["attempt_count"] == 2
             assert should_skip is None
+        finally:
+            await _cleanup()
+
+    @pytest.mark.anyio
+    async def test_mark_orphaned_clears_lease(self, tmp_path):
+        repo = await _make_repo(tmp_path)
+        try:
+            row, _ = await repo.create_or_get(
+                workflow_id="wf-orphan",
+                source_type="api",
+                source="dashboard",
+                max_attempts=2,
+            )
+
+            claimed = await repo.claim_next(lease_owner="worker-1", lease_seconds=60)
+            marked = await repo.mark_orphaned(
+                row["workflow_id"],
+                error="gateway restarted",
+                metadata={"recovery": "gateway_restart_orphan"},
+            )
+            loaded = await repo.get(row["workflow_id"])
+
+            assert claimed["lease_owner"] == "worker-1"
+            assert marked is True
+            assert loaded["status"] == "orphaned"
+            assert loaded["error"] == "gateway restarted"
+            assert loaded["lease_owner"] is None
+            assert loaded["lease_expires_at"] is None
+            assert loaded["metadata"] == {"recovery": "gateway_restart_orphan"}
         finally:
             await _cleanup()
 
