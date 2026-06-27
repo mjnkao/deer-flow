@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Input } from "@/components/ui/input";
+import { syncCsrfFromResponse } from "@/core/api/fetcher";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { parseAuthError } from "@/core/auth/types";
 import { useI18n } from "@/core/i18n/hooks";
@@ -145,6 +146,7 @@ export default function LoginPage() {
         body,
         credentials: "include", // Important: include HttpOnly cookie
       });
+      syncCsrfFromResponse(res);
 
       if (!res.ok) {
         const data = await res.json();

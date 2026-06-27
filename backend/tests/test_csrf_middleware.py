@@ -18,6 +18,10 @@ def _make_app() -> FastAPI:
     async def register():
         return {"ok": True}
 
+    @app.get("/api/v1/auth/me")
+    async def me():
+        return {"id": "user-1"}
+
     @app.post("/api/threads/abc/runs/stream")
     async def protected_mutation():
         return {"ok": True}
@@ -192,12 +196,70 @@ def test_auth_post_without_origin_still_allows_non_browser_clients():
     assert response.cookies.get("csrf_token")
 
 
+def test_auth_me_seeds_missing_csrf_cookie_for_existing_session():
+    client = TestClient(_make_app(), base_url="https://deerflow.example")
+
+    response = client.get("/api/v1/auth/me")
+
+    assert response.status_code == 200
+    assert response.cookies.get("csrf_token")
+    assert response.headers.get("X-CSRF-Token")
+    set_cookie = response.headers["set-cookie"].lower()
+    assert "samesite=strict" in set_cookie
+    assert "secure" in set_cookie
+
+
+def test_auth_me_echoes_existing_csrf_cookie():
+    client = TestClient(_make_app(), base_url="https://deerflow.example")
+    client.cookies.set("csrf_token", "known-token")
+
+    response = client.get("/api/v1/auth/me")
+
+    assert response.status_code == 200
+    assert response.headers.get("X-CSRF-Token") == "known-token"
+    assert response.cookies.get("csrf_token") is None
+
+
 def test_non_auth_mutation_still_requires_double_submit_token():
+    client = TestClient(_make_app(), base_url="https://deerflow.example")
+
+    response = client.post("/api/threads/abc/runs/stream")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "CSRF token missing. Include X-CSRF-Token header."
+
+
+def test_non_auth_mutation_allows_same_origin_without_double_submit_token():
     client = TestClient(_make_app(), base_url="https://deerflow.example")
 
     response = client.post(
         "/api/threads/abc/runs/stream",
         headers={"Origin": "https://deerflow.example"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_non_auth_mutation_allows_configured_origin_without_double_submit_token(
+    monkeypatch,
+):
+    monkeypatch.setenv("GATEWAY_CORS_ORIGINS", "http://localhost:13001")
+    client = TestClient(_make_app(), base_url="http://127.0.0.1:18081")
+
+    response = client.post(
+        "/api/threads/abc/runs/stream",
+        headers={"Origin": "http://localhost:13001"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_non_auth_mutation_rejects_untrusted_origin_without_double_submit_token():
+    client = TestClient(_make_app(), base_url="https://deerflow.example")
+
+    response = client.post(
+        "/api/threads/abc/runs/stream",
+        headers={"Origin": "https://evil.example"},
     )
 
     assert response.status_code == 403
@@ -238,10 +300,7 @@ def test_non_auth_mutation_rejects_mismatched_double_submit_token():
 def test_channel_posts_require_double_submit_csrf():
     client = TestClient(_make_app(), base_url="https://deerflow.example")
 
-    response = client.post(
-        "/api/channels/slack/connect",
-        headers={"Origin": "https://deerflow.example"},
-    )
+    response = client.post("/api/channels/slack/connect")
 
     assert response.status_code == 403
     assert response.json()["detail"] == "CSRF token missing. Include X-CSRF-Token header."

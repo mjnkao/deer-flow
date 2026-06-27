@@ -18,6 +18,7 @@ from app.gateway.auth_disabled import is_auth_disabled
 
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
+CSRF_RESPONSE_HEADER_NAME = "X-CSRF-Token"
 CSRF_TOKEN_LENGTH = 64  # bytes
 
 
@@ -176,6 +177,47 @@ def is_allowed_auth_origin(request: Request) -> bool:
     return normalized_origin in _configured_cors_origins() or (request_origin is not None and normalized_origin == request_origin)
 
 
+def is_allowed_state_changing_origin(request: Request) -> bool:
+    """Allow trusted browser origins when double-submit cookies are unavailable.
+
+    Split-origin local development can make the JS-readable CSRF cookie hard
+    to bootstrap across ports. A trusted Origin header still prevents forged
+    browser writes from unconfigured sites, while non-browser callers without
+    Origin continue to require the double-submit token.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return False
+
+    normalized_origin = _normalize_origin(origin)
+    if normalized_origin is None:
+        return False
+
+    request_origin = _request_origin(request)
+    return normalized_origin in _configured_cors_origins() or (request_origin is not None and normalized_origin == request_origin)
+
+
+def _set_csrf_cookie(response: Response, request: Request) -> None:
+    csrf_token = generate_csrf_token()
+    response.headers[CSRF_RESPONSE_HEADER_NAME] = csrf_token
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,  # Must be JS-readable for Double Submit Cookie pattern
+        secure=is_secure_request(request),
+        samesite="strict",
+    )
+
+
+def _should_seed_csrf_cookie(request: Request, response: Response) -> bool:
+    """Refresh missing CSRF cookies for authenticated browser sessions."""
+    if is_auth_disabled():
+        return False
+
+    path = request.url.path.rstrip("/")
+    return request.method == "GET" and path == "/api/v1/auth/me" and response.status_code < 400
+
+
 class CSRFMiddleware(BaseHTTPMiddleware):
     """Middleware that implements CSRF protection using Double Submit Cookie pattern."""
 
@@ -196,12 +238,13 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             header_token = request.headers.get(CSRF_HEADER_NAME)
 
             if not cookie_token or not header_token:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "CSRF token missing. Include X-CSRF-Token header."},
-                )
+                if not is_allowed_state_changing_origin(request):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "CSRF token missing. Include X-CSRF-Token header."},
+                    )
 
-            if not secrets.compare_digest(cookie_token, header_token):
+            elif not secrets.compare_digest(cookie_token, header_token):
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "CSRF token mismatch."},
@@ -211,16 +254,13 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
         # For auth endpoints that set up session, also set CSRF cookie
         if _is_auth and request.method == "POST":
-            # Generate a new CSRF token for the session
-            csrf_token = generate_csrf_token()
-            is_https = is_secure_request(request)
-            response.set_cookie(
-                key=CSRF_COOKIE_NAME,
-                value=csrf_token,
-                httponly=False,  # Must be JS-readable for Double Submit Cookie pattern
-                secure=is_https,
-                samesite="strict",
-            )
+            _set_csrf_cookie(response, request)
+        elif _should_seed_csrf_cookie(request, response):
+            existing_token = request.cookies.get(CSRF_COOKIE_NAME)
+            if existing_token:
+                response.headers[CSRF_RESPONSE_HEADER_NAME] = existing_token
+            else:
+                _set_csrf_cookie(response, request)
 
         return response
 

@@ -15,6 +15,7 @@ export function isStateChangingMethod(method: string): boolean {
 }
 
 const CSRF_COOKIE_PREFIX = "csrf_token=";
+const CSRF_HEADER_NAME = "X-CSRF-Token";
 
 /**
  * Read the ``csrf_token`` cookie set by the gateway at login.
@@ -34,6 +35,28 @@ export function readCsrfCookie(): string | null {
     }
   }
   return null;
+}
+
+export function syncCsrfFromResponse(response: Response): void {
+  if (typeof document === "undefined") return;
+
+  const token = response.headers.get(CSRF_HEADER_NAME);
+  if (!token) return;
+
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Strict${secure}`;
+}
+
+export async function ensureCsrfToken(): Promise<string | null> {
+  const existing = readCsrfCookie();
+  if (existing) return existing;
+
+  const response = await globalThis.fetch("/api/v1/auth/me", {
+    credentials: "include",
+    cache: "no-store",
+  });
+  syncCsrfFromResponse(response);
+  return readCsrfCookie();
 }
 
 /**
@@ -63,12 +86,12 @@ export async function fetch(
   // it to mirror the gateway's ``should_check_csrf`` logic exactly.
   let headers = init?.headers;
   if (isStateChangingMethod(init?.method ?? "GET")) {
-    const token = readCsrfCookie();
+    const token = await ensureCsrfToken();
     if (token) {
       // Fresh Headers instance so we don't mutate caller-supplied objects.
       const merged = new Headers(headers);
-      if (!merged.has("X-CSRF-Token")) {
-        merged.set("X-CSRF-Token", token);
+      if (!merged.has(CSRF_HEADER_NAME)) {
+        merged.set(CSRF_HEADER_NAME, token);
       }
       headers = merged;
     }

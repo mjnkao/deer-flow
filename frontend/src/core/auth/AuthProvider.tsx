@@ -10,6 +10,7 @@ import React, {
   type ReactNode,
 } from "react";
 
+import { syncCsrfFromResponse } from "../api/fetcher";
 import { isStaticWebsiteOnly } from "../static-mode";
 
 import { type User, buildLoginUrl } from "./types";
@@ -74,6 +75,7 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
       const res = await fetch("/api/v1/auth/me", {
         credentials: "include",
       });
+      syncCsrfFromResponse(res);
 
       if (res.ok) {
         const data = await res.json();

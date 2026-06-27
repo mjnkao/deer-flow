@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Input } from "@/components/ui/input";
-import { getCsrfHeaders } from "@/core/api/fetcher";
+import { getCsrfHeaders, syncCsrfFromResponse } from "@/core/api/fetcher";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { parseAuthError } from "@/core/auth/types";
 
@@ -81,6 +81,7 @@ export default function SetupPage() {
           password: newPassword,
         }),
       });
+      syncCsrfFromResponse(res);
 
       if (!res.ok) {
         const data = await res.json();
@@ -126,6 +127,7 @@ export default function SetupPage() {
           new_email: email || undefined,
         }),
       });
+      syncCsrfFromResponse(res);
 
       if (!res.ok) {
         const data = await res.json();

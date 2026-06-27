@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { syncCsrfFromResponse } from "@/core/api/fetcher";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { userSchema, type User } from "@/core/auth/types";
 import { useI18n } from "@/core/i18n/hooks";
@@ -52,6 +53,7 @@ export function GatewayOfflineBanner({
           credentials: "include",
           cache: "no-store",
         });
+        syncCsrfFromResponse(res);
         // Reuse the probe's own response body instead of triggering a
         // second /auth/me request via refreshUser() — halves the recovery
         // burst against an already-struggling gateway.

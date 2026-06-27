@@ -9,7 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.gateway.auth_disabled import warn_if_auth_disabled_enabled
 from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.config import get_gateway_config
-from app.gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_origins
+from app.gateway.csrf_middleware import (
+    CSRF_RESPONSE_HEADER_NAME,
+    CSRFMiddleware,
+    get_configured_cors_origins,
+)
 from app.gateway.deps import langgraph_runtime
 from app.gateway.routers import (
     agents,
@@ -387,6 +391,7 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            expose_headers=[CSRF_RESPONSE_HEADER_NAME],
         )
 
     # Include routers
