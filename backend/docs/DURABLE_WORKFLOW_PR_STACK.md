@@ -31,6 +31,42 @@ Draft upstream PRs currently opened from this roadmap:
 - #3818: agent-facing Work Unit tools.
 - #3819: WorkBoard MVP.
 
+## Current Progress
+
+The runtime foundation has reached the first upstream discussion point:
+
+- PR 1-5 are open as draft PRs and form the first mergeable runtime wave.
+- PR 1-5 are intentionally useful without Work Module, WorkBoard, channel
+  adapters, visual workflow design, Redis StreamBridge, Restate, Temporal, or
+  Hatchet.
+- Work Module, Agent Work Unit Tools, and WorkBoard are also open as draft PRs
+  to demonstrate practical value, but they should remain downstream of runtime
+  identity and separately gated.
+
+The next runtime work that is not yet represented by open implementation PRs is
+PR 6-10: recovery/orphan reconciliation, deterministic binding resolver,
+channel/dashboard intake adoption, durable waiting/resume refs, and worker pool
+readiness.
+
+The next module work that is not yet ready for upstream review is external PM
+binding, work gates/criteria, and the workflow definition/designer plane.
+
+## Plan Updates
+
+The plan should be adjusted in three ways:
+
+- Treat PR 1-5 as the first review wave and keep later runtime PRs separate.
+  This gives maintainers a small durable workflow core to evaluate before
+  horizontal worker semantics or channel intake expand the surface area.
+- Keep Work Module before WorkBoard, and keep Agent Work Unit Tools before
+  WorkBoard. WorkBoard should be an observer and operator surface over Work
+  Units; agents should update Work Units by calling tools so the database, board
+  UI, and chat claims cannot drift.
+- Keep Redis StreamBridge as a compatible transport layer, not as a dependency
+  of durable workflow state. This avoids coupling workflow durability to Redis
+  stream TTL/bounded replay behavior while still supporting multi-worker SSE
+  once that upstream track lands.
+
 ## Review Principles
 
 - Keep the Durable Workflow Runtime layer generic. Do not introduce AICOS, PM
@@ -308,22 +344,7 @@ Current draft: #3817.
 - Add `/api/work-units` CRUD and event list endpoints.
 - Allow optional links to `workflow_id`, `thread_id`, and `run_id`.
 
-### PR 12: WorkBoard MVP
-
-Current draft: #3819.
-
-- Add `/workspace/work`.
-- Show Trello-style columns over `work_units.status`.
-- Create local work units.
-- Show runtime-driven status projection; local human-created work starts in
-  `backlog`.
-- Link cards to chat threads and workflow traces when refs exist.
-- Support the practical operating model where long-running contribution work,
-  such as a stack of upstream PRs, can be represented as Work Units assigned
-  to agents and tracked through backlog, ready, running, waiting, review, done,
-  and closed states.
-
-### PR 12b: Agent Work Unit Tools
+### PR 12: Agent Work Unit Tools
 
 Current draft: #3818.
 
@@ -333,20 +354,36 @@ Current draft: #3818.
 - Keep WorkBoard thin: the board observes and chats, while agent/runtime tools
   mutate Work Unit state.
 
-### PR 13: External PM Binding Contract
+### PR 13: WorkBoard MVP
+
+Current draft: #3819.
+
+- Add `/workspace/work`.
+- Show Trello-style columns over `work_units.status`.
+- Create local work units in `backlog` only.
+- Show runtime-driven status projection.
+- Link cards to chat threads and workflow traces when refs exist.
+- Support the practical operating model where long-running contribution work,
+  such as a stack of upstream PRs, can be represented as Work Units assigned
+  to agents and tracked through backlog, ready, running, waiting, review, done,
+  and closed states.
+- Avoid direct human status mutation as the default flow. Humans create and
+  review Work Units; agents/runtimes move status through Work Unit tools.
+
+### PR 14: External PM Binding Contract
 
 - Define adapter mapping for Jira/Trello/ClickUp/Plane/Lark-style work
   objects.
 - Add external ref/url/source conventions.
 - Keep credentials, webhooks, sync cursors, and conflict policy in adapters.
 
-### PR 14: Work Gates And Criteria
+### PR 15: Work Gates And Criteria
 
 - Add acceptance criteria and lightweight human gates.
 - Link gates to runtime `waiting` workflows where appropriate.
 - Keep LangGraph interrupt payloads in LangGraph checkpoint state.
 
-### PR 15: Agent Workflow Definition Plane
+### PR 16: Agent Workflow Definition Plane
 
 - Add Agent Workflow DSL schema/validation.
 - Add definition/version persistence.
