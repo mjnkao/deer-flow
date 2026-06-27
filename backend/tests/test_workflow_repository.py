@@ -80,6 +80,8 @@ async def test_memory_workflow_store_claim_and_release_for_retry():
     workflow, _ = await store.create_or_get(source_type="api", source="dashboard", max_attempts=2)
 
     claimed = await store.claim_next(lease_owner="worker-1", lease_seconds=30)
+    renewed = await store.renew_lease(workflow["workflow_id"], lease_owner="worker-1", lease_seconds=60)
+    wrong_owner = await store.renew_lease(workflow["workflow_id"], lease_owner="worker-other", lease_seconds=60)
     released = await store.release_for_retry(
         workflow["workflow_id"],
         status="received",
@@ -93,6 +95,9 @@ async def test_memory_workflow_store_claim_and_release_for_retry():
     assert claimed["workflow_id"] == workflow["workflow_id"]
     assert claimed["lease_owner"] == "worker-1"
     assert claimed["attempt_count"] == 1
+    assert renewed["workflow_id"] == workflow["workflow_id"]
+    assert renewed["lease_owner"] == "worker-1"
+    assert wrong_owner is None
     assert released is True
     assert claimed_again["lease_owner"] == "worker-2"
     assert claimed_again["attempt_count"] == 2
@@ -277,6 +282,8 @@ class TestWorkflowRepository:
 
             claimed = await repo.claim_next(lease_owner="worker-1", lease_seconds=60)
             none_while_leased = await repo.claim_next(lease_owner="worker-2", lease_seconds=60)
+            renewed = await repo.renew_lease(row["workflow_id"], lease_owner="worker-1", lease_seconds=120)
+            wrong_owner = await repo.renew_lease(row["workflow_id"], lease_owner="worker-other", lease_seconds=120)
             released = await repo.release_for_retry(
                 row["workflow_id"],
                 status="received",
@@ -293,6 +300,10 @@ class TestWorkflowRepository:
             assert claimed["lease_expires_at"] is not None
             assert claimed["attempt_count"] == 1
             assert none_while_leased is None
+            assert renewed["workflow_id"] == "wf-claim"
+            assert renewed["lease_owner"] == "worker-1"
+            assert renewed["lease_expires_at"] >= claimed["lease_expires_at"]
+            assert wrong_owner is None
             assert released is True
             assert claimed_again["lease_owner"] == "worker-2"
             assert claimed_again["attempt_count"] == 2
@@ -379,6 +390,7 @@ class TestWorkflowRepository:
         try:
             assert await repo.bind_runtime("missing", thread_id="t1") is False
             assert await repo.update_status("missing", "failed") is False
+            assert await repo.renew_lease("missing", lease_owner="worker-1") is None
         finally:
             await _cleanup()
 

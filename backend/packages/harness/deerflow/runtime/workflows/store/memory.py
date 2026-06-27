@@ -121,6 +121,27 @@ class MemoryWorkflowStore(WorkflowStore):
             return dict(row)
         return None
 
+    async def renew_lease(
+        self,
+        workflow_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int = 300,
+    ) -> dict[str, Any] | None:
+        row = self._workflows.get(workflow_id)
+        if row is None:
+            return None
+        now_dt = datetime.now(UTC)
+        now = now_dt.isoformat()
+        if row.get("lease_owner") != lease_owner:
+            return None
+        lease_expires_at = row.get("lease_expires_at")
+        if not lease_expires_at or lease_expires_at <= now:
+            return None
+        row["lease_expires_at"] = (now_dt + timedelta(seconds=lease_seconds)).isoformat()
+        row["updated_at"] = now
+        return dict(row)
+
     async def get(self, workflow_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
         row = self._workflows.get(workflow_id)
         if row is None:

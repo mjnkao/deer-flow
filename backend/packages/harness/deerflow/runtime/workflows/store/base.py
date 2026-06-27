@@ -53,6 +53,20 @@ class WorkflowStore(abc.ABC):
         """
 
     @abc.abstractmethod
+    async def renew_lease(
+        self,
+        workflow_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int = 300,
+    ) -> dict[str, Any] | None:
+        """Extend an active workflow lease owned by ``lease_owner``.
+
+        Returns the updated row, or ``None`` when the workflow is missing,
+        leased by another owner, or already expired.
+        """
+
+    @abc.abstractmethod
     async def get(self, workflow_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
         pass
 

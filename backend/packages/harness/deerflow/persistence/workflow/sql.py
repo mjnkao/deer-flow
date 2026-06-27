@@ -209,6 +209,34 @@ class WorkflowRepository(WorkflowStore):
                 row.updated_at = now
             return self._row_to_dict(row)
 
+    async def renew_lease(
+        self,
+        workflow_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int = 300,
+    ) -> dict[str, Any] | None:
+        now = datetime.now(UTC)
+        lease_expires_at = now + timedelta(seconds=lease_seconds)
+        stmt = (
+            select(WorkflowRow)
+            .where(
+                WorkflowRow.workflow_id == workflow_id,
+                WorkflowRow.lease_owner == lease_owner,
+                WorkflowRow.lease_expires_at.is_not(None),
+                WorkflowRow.lease_expires_at > now,
+            )
+            .with_for_update()
+        )
+        async with self._sf() as session:
+            async with session.begin():
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.lease_expires_at = lease_expires_at
+                row.updated_at = now
+            return self._row_to_dict(row)
+
     async def get(self, workflow_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
         async with self._sf() as session:
             row = await session.get(WorkflowRow, workflow_id)

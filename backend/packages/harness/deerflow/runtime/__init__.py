@@ -16,9 +16,12 @@ from .workflows import (
     WorkflowBindingDecision,
     WorkflowBindingStatus,
     WorkflowKind,
+    WorkflowLeaseConfig,
     WorkflowSourceType,
     WorkflowStatus,
     WorkflowStore,
+    WorkflowWorkerIdentity,
+    default_workflow_worker_identity,
     resolve_workflow_binding,
 )
 
@@ -62,8 +65,11 @@ __all__ = [
     "WorkflowBindingDecision",
     "WorkflowBindingStatus",
     "WorkflowKind",
+    "WorkflowLeaseConfig",
     "WorkflowSourceType",
     "WorkflowStatus",
     "WorkflowStore",
+    "WorkflowWorkerIdentity",
+    "default_workflow_worker_identity",
     "resolve_workflow_binding",
 ]
