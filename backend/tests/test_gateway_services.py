@@ -859,6 +859,89 @@ def test_start_run_uses_workflow_intake_headers(_stub_app_config):
     assert "workflow.bound" in [event["event_type"] for event in events]
 
 
+def test_interrupted_run_projects_waiting_workflow_status():
+    from app.gateway.services import _workflow_status_for_run_status
+    from deerflow.runtime import RunStatus
+
+    assert _workflow_status_for_run_status(RunStatus.interrupted) == ("waiting", "workflow.waiting")
+
+
+def test_start_run_records_resume_ref_without_payload(_stub_app_config):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.store.memory import InMemoryStore
+
+    from app.gateway.services import start_run
+    from deerflow.persistence.thread_meta.memory import MemoryThreadMetaStore
+    from deerflow.runtime import RunManager
+    from deerflow.runtime.runs.store.memory import MemoryRunStore
+    from deerflow.runtime.workflows.store.memory import MemoryWorkflowStore
+
+    async def _scenario():
+        workflow_store = MemoryWorkflowStore()
+        run_manager = RunManager(store=MemoryRunStore())
+        state = SimpleNamespace(
+            stream_bridge=SimpleNamespace(),
+            run_manager=run_manager,
+            checkpointer=InMemorySaver(),
+            store=InMemoryStore(),
+            run_event_store=SimpleNamespace(),
+            run_events_config=None,
+            thread_store=MemoryThreadMetaStore(InMemoryStore()),
+            workflow_store=workflow_store,
+        )
+        request = SimpleNamespace(
+            headers={},
+            state=SimpleNamespace(),
+            app=SimpleNamespace(state=state),
+            url=SimpleNamespace(path="/api/threads/thread-resume/runs/wait"),
+            method="POST",
+        )
+        body = SimpleNamespace(
+            assistant_id="lead_agent",
+            input=None,
+            command={"resume": {"answer": "approved"}},
+            metadata={},
+            config=None,
+            context=None,
+            on_disconnect="cancel",
+            multitask_strategy="reject",
+            stream_mode=None,
+            stream_subgraphs=False,
+            interrupt_before=None,
+            interrupt_after=None,
+        )
+
+        async def fake_run_agent(*args, **kwargs):
+            return None
+
+        with (
+            patch("app.gateway.services.resolve_agent_factory", return_value=object()),
+            patch("app.gateway.services.run_agent", side_effect=fake_run_agent),
+        ):
+            record = await start_run(body, "thread-resume", request)
+            await record.task
+
+        rows = await workflow_store.list(run_id=record.run_id)
+        events = await workflow_store.list_events(rows[0]["workflow_id"])
+        return rows[0], events
+
+    workflow, events = asyncio.run(_scenario())
+
+    assert workflow["workflow_kind"] == "resume"
+    assert workflow["metadata"]["resume"] == {
+        "type": "langgraph_command_resume",
+        "has_payload": True,
+        "payload_type": "dict",
+    }
+    assert "workflow.resume_requested" in [event["event_type"] for event in events]
+    assert "approved" not in json.dumps({"workflow": workflow, "events": events}, default=str)
+
+
 # ---------------------------------------------------------------------------
 # build_run_config — context / configurable precedence (LangGraph >= 0.6.0)
 # ---------------------------------------------------------------------------

@@ -381,6 +381,18 @@ def _workflow_kind_for_run(body: Any) -> str:
     return "message"
 
 
+def _resume_ref_for_run(body: Any) -> dict[str, Any] | None:
+    command = getattr(body, "command", None)
+    if not isinstance(command, Mapping) or command.get("resume") is None:
+        return None
+    payload = command["resume"]
+    return {
+        "type": "langgraph_command_resume",
+        "has_payload": True,
+        "payload_type": type(payload).__name__,
+    }
+
+
 def _requested_checkpoint_refs(body: Any) -> tuple[str | None, str | None]:
     checkpoint_ns: str | None = None
     checkpoint_id = getattr(body, "checkpoint_id", None)
@@ -412,6 +424,7 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
     thread_ref = _request_header_ref(request, "X-DeerFlow-Workflow-Thread-Ref") or thread_id
     sender_ref = _request_header_ref(request, "X-DeerFlow-Workflow-Sender-Ref") or _request_user_id(request, owner_user_id)
     checkpoint_ns, checkpoint_id = _requested_checkpoint_refs(body)
+    resume_ref = _resume_ref_for_run(body)
     binding_decision = resolve_workflow_binding(
         explicit_thread_id=thread_id,
         explicit_checkpoint_ns=checkpoint_ns,
@@ -438,6 +451,7 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
             "source_type": source_type,
             "source": source,
             "binding": binding_decision.to_metadata(),
+            **({"resume": resume_ref} if resume_ref is not None else {}),
         },
     )
     if not created and workflow.get("run_id"):
@@ -468,6 +482,16 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
             checkpoint_ns=binding_decision.checkpoint_ns,
             checkpoint_id=binding_decision.checkpoint_id,
             metadata=binding_decision.to_metadata(),
+        )
+    if created and resume_ref is not None:
+        await workflow_store.append_event(
+            workflow["workflow_id"],
+            event_type="workflow.resume_requested",
+            category="runtime",
+            thread_id=thread_id,
+            checkpoint_ns=checkpoint_ns,
+            checkpoint_id=checkpoint_id,
+            metadata=resume_ref,
         )
     return workflow
 
@@ -515,7 +539,7 @@ def _workflow_status_for_run_status(status: RunStatus) -> tuple[str, str] | None
     if status in (RunStatus.error, RunStatus.timeout):
         return "failed", "workflow.failed"
     if status == RunStatus.interrupted:
-        return "cancelled", "workflow.cancelled"
+        return "waiting", "workflow.waiting"
     return None
 
 
@@ -530,6 +554,13 @@ async def _project_run_workflow_status(
 ) -> None:
     workflow_store = get_workflow_store(request)
     metadata = {"run_status": record.status.value}
+    if status == "waiting":
+        metadata.update(
+            {
+                "wait_reason": "run_interrupted",
+                "resume_supported": True,
+            }
+        )
     if error:
         metadata["error"] = error
     await workflow_store.update_status(workflow_id, status, error=error, metadata=metadata)
