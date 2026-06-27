@@ -299,6 +299,30 @@ class WorkflowRepository(WorkflowStore):
             await session.commit()
             return True
 
+    async def mark_orphaned(
+        self,
+        workflow_id: str,
+        *,
+        error: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        values: dict[str, Any] = {
+            "status": "orphaned",
+            "error": error,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "updated_at": datetime.now(UTC),
+        }
+        async with self._sf() as session:
+            row = await session.get(WorkflowRow, workflow_id)
+            if row is None:
+                return False
+            if metadata:
+                values["metadata_json"] = {**(row.metadata_json or {}), **(self._safe_json(metadata) or {})}
+            await session.execute(update(WorkflowRow).where(WorkflowRow.workflow_id == workflow_id).values(**values))
+            await session.commit()
+            return True
+
     async def list(
         self,
         *,
