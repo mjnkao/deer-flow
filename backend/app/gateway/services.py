@@ -358,6 +358,14 @@ def _request_workflow_idempotency_key(request: Request) -> str | None:
     return request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key")
 
 
+def _request_header_ref(request: Request, name: str) -> str | None:
+    value = request.headers.get(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _request_user_id(request: Request, owner_user_id: str | None) -> str | None:
     if owner_user_id:
         return owner_user_id
@@ -395,9 +403,14 @@ def _auto_workflow_envelopes_enabled() -> bool:
 async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, owner_user_id: str | None) -> dict[str, Any]:
     workflow_store = get_workflow_store(request)
     idempotency_key = _request_workflow_idempotency_key(request)
-    external_message_ref = request.headers.get("X-External-Message-Ref")
+    external_message_ref = _request_header_ref(request, "X-External-Message-Ref")
     route_path = str(getattr(getattr(request, "url", None), "path", None) or "/api/runs")
     method = str(getattr(request, "method", None) or "POST")
+    source_type = _request_header_ref(request, "X-DeerFlow-Workflow-Source-Type") or "api"
+    source = _request_header_ref(request, "X-DeerFlow-Workflow-Source") or route_path
+    conversation_ref = _request_header_ref(request, "X-DeerFlow-Workflow-Conversation-Ref") or thread_id
+    thread_ref = _request_header_ref(request, "X-DeerFlow-Workflow-Thread-Ref") or thread_id
+    sender_ref = _request_header_ref(request, "X-DeerFlow-Workflow-Sender-Ref") or _request_user_id(request, owner_user_id)
     checkpoint_ns, checkpoint_id = _requested_checkpoint_refs(body)
     binding_decision = resolve_workflow_binding(
         explicit_thread_id=thread_id,
@@ -406,13 +419,13 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
     )
     workflow, created = await workflow_store.create_or_get(
         workflow_kind=_workflow_kind_for_run(body),
-        source_type="api",
-        source=route_path,
+        source_type=source_type,
+        source=source,
         idempotency_key=idempotency_key,
         external_message_ref=external_message_ref,
-        conversation_ref=thread_id,
-        thread_ref=thread_id,
-        sender_ref=_request_user_id(request, owner_user_id),
+        conversation_ref=conversation_ref,
+        thread_ref=thread_ref,
+        sender_ref=sender_ref,
         user_id=_request_user_id(request, owner_user_id),
         thread_id=thread_id,
         checkpoint_ns=checkpoint_ns,
@@ -422,6 +435,8 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
             "assistant_id": getattr(body, "assistant_id", None),
             "route": route_path,
             "method": method,
+            "source_type": source_type,
+            "source": source,
             "binding": binding_decision.to_metadata(),
         },
     )
@@ -441,7 +456,7 @@ async def _create_run_workflow(body: Any, thread_id: str, request: Request, *, o
         workflow["workflow_id"],
         event_type="workflow.received" if created else "workflow.deduped",
         idempotency_key=idempotency_key,
-        content={"thread_id": thread_id, "source": route_path},
+        content={"thread_id": thread_id, "source_type": source_type, "source": source},
     )
     if created and binding_decision.status == WorkflowBindingStatus.resolved:
         await workflow_store.append_event(
