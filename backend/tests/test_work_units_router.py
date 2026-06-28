@@ -40,15 +40,23 @@ def test_work_unit_api_create_list_update_and_events():
         )
         listed = client.get("/api/work-units", params={"status": "backlog", "workflow_id": "wf-api-1"})
         updated = client.patch("/api/work-units/work-api-1", json={"status": "in_progress"})
+        cleared = client.patch(
+            "/api/work-units/work-api-1",
+            json={"workflow_id": None, "run_id": None, "labels": None},
+        )
         events = client.get("/api/work-units/work-api-1/events")
 
     assert created.status_code == 200
     assert created.json()["work_unit_id"] == "work-api-1"
     assert [row["work_unit_id"] for row in listed.json()["data"]] == ["work-api-1"]
     assert updated.json()["status"] == "in_progress"
+    assert cleared.json()["workflow_id"] is None
+    assert cleared.json()["run_id"] is None
+    assert cleared.json()["labels"] == []
     assert [event["event_type"] for event in events.json()["events"]] == [
         "work_unit.created",
         "work_unit.status_changed",
+        "work_unit.updated",
     ]
 
 
@@ -83,9 +91,12 @@ def test_work_unit_api_rejects_invalid_enum_values():
             },
         )
         updated = client.patch("/api/work-units/work-api-valid", json={"status": "shipped"})
+        null_status = client.patch("/api/work-units/work-api-valid", json={"status": None})
 
     assert created.status_code == 400
     assert "Invalid priority" in created.json()["detail"]
     assert valid.status_code == 200
     assert updated.status_code == 400
     assert "Invalid status" in updated.json()["detail"]
+    assert null_status.status_code == 400
+    assert "status cannot be null" in null_status.json()["detail"]
