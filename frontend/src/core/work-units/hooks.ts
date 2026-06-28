@@ -8,9 +8,11 @@ import {
   type UpdateWorkUnitRequest,
 } from "./api";
 
+export const workUnitsQueryKey = ["work-units"] as const;
+
 export function useWorkUnits(options: { enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: ["work-units"],
+    queryKey: workUnitsQueryKey,
     queryFn: () => listWorkUnits({ limit: 500 }),
     enabled: options.enabled ?? true,
     refetchInterval: 10_000,
@@ -23,7 +25,7 @@ export function useCreateWorkUnit() {
   return useMutation({
     mutationFn: (request: CreateWorkUnitRequest) => createWorkUnit(request),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["work-units"] });
+      void queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     },
   });
 }
@@ -39,7 +41,7 @@ export function useUpdateWorkUnit() {
       request: UpdateWorkUnitRequest;
     }) => updateWorkUnit(workUnitId, request),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["work-units"] });
+      void queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     },
   });
 }

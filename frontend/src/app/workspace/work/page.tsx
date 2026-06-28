@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ChevronDown,
@@ -52,6 +52,7 @@ import { useThreadStream } from "@/core/threads/hooks";
 import { textOfMessage } from "@/core/threads/utils";
 import { uuid } from "@/core/utils/uuid";
 import {
+  workUnitsQueryKey,
   useCreateWorkUnit,
   useUpdateWorkUnit,
   useWorkUnits,
@@ -970,6 +971,7 @@ function WorkUnitChatPanel({
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const updateWorkUnit = useUpdateWorkUnit();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const nextAgent =
@@ -994,6 +996,14 @@ function WorkUnitChatPanel({
     threadId: persistedThreadId ?? undefined,
     displayThreadId: draftThreadId,
     context: chatContext,
+    onToolEnd: (event) => {
+      if (event.name === "work_unit" || event.name === "work_units") {
+        void queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      }
+    },
+    onFinish: () => {
+      void queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    },
     onStart: (createdThreadId) => {
       setPersistedThreadId(createdThreadId);
       if (item && item.thread_id !== createdThreadId) {
