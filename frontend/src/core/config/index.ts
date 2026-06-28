@@ -4,8 +4,7 @@ function getBaseOrigin() {
   if (typeof window !== "undefined") {
     return window.location.origin;
   }
-  // Fallback for SSR
-  return "http://localhost:2026";
+  return process.env.DEER_FLOW_APP_ORIGIN ?? "http://127.0.0.1:13001";
 }
 
 export function getBackendBaseURL() {
@@ -35,10 +34,6 @@ export function getLangGraphBaseURL(isMock?: boolean) {
     return "http://localhost:3000/mock/api";
   } else {
     // LangGraph SDK requires a full URL, construct it from current origin
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/api/langgraph`;
-    }
-    // Fallback for SSR
-    return "http://localhost:2026/api/langgraph";
+    return `${getBaseOrigin()}/api/langgraph`;
   }
 }
