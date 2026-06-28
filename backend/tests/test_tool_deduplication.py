@@ -8,6 +8,7 @@ priority, and logs a warning for every skipped duplicate.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from langchain_core.tools import BaseTool, StructuredTool, tool
@@ -58,6 +59,7 @@ def _make_minimal_config(tools):
     config.models = []
     config.tool_search.enabled = False
     config.skill_evolution.enabled = False
+    config.modules = SimpleNamespace(work=SimpleNamespace(enabled=False))
     config.sandbox = MagicMock()
     config.acp_agents = {}
     return config
@@ -198,3 +200,31 @@ def test_duplicate_triggers_warning(mock_bash, mock_cfg, caplog):
             get_available_tools(include_mcp=False)
 
     assert any("Duplicate tool name" in r.message for r in caplog.records), "Expected a duplicate-tool warning in log output"
+
+
+@patch("deerflow.tools.tools.get_app_config")
+@patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
+def test_work_units_tool_respects_work_module_gate(mock_bash, mock_cfg):
+    """The generic Work Unit tool is only exposed when the Work Module is enabled."""
+    disabled_config = _make_minimal_config([])
+    enabled_config = _make_minimal_config([])
+    enabled_config.modules.work.enabled = True
+
+    with patch("deerflow.tools.tools.BUILTIN_TOOLS", []):
+        disabled_names = [
+            tool.name
+            for tool in get_available_tools(
+                include_mcp=False,
+                app_config=disabled_config,
+            )
+        ]
+        enabled_names = [
+            tool.name
+            for tool in get_available_tools(
+                include_mcp=False,
+                app_config=enabled_config,
+            )
+        ]
+
+    assert "work_units" not in disabled_names
+    assert "work_units" in enabled_names
