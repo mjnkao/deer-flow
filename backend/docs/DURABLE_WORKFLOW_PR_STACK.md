@@ -269,7 +269,17 @@ required for a minimal durable runtime deployment.
 - Add `/api/work-units` CRUD and event list endpoints.
 - Allow optional links to `workflow_id`, `thread_id`, and `run_id`.
 
-### PR 12: WorkBoard MVP
+### PR 12: Work Unit Agent Tools
+
+- Expose `work_units` when `modules.work.enabled=true`.
+- Let agents create, list, inspect, and update Work Units through the generic
+  Work Module store.
+- Keep runtime-bound `work_unit` status updates scoped to the attached Work
+  Unit.
+- Record agent actions as `work_events`.
+- WorkBoard and PM adapters are not required for this PR to be useful.
+
+### PR 13: WorkBoard MVP
 
 - Add `/workspace/work`.
 - Show Trello-style columns over `work_units.status`.
@@ -278,20 +288,20 @@ required for a minimal durable runtime deployment.
   `backlog`.
 - Link cards to chat threads and workflow traces when refs exist.
 
-### PR 13: External PM Binding Contract
+### PR 14: External PM Binding Contract
 
 - Define adapter mapping for Jira/Trello/ClickUp/Plane/Lark-style work objects.
 - Add external ref/url/source conventions.
 - Keep credentials, webhooks, sync cursors, and conflict policy in adapters.
 - Do not implement concrete PM connectors in the core stack.
 
-### PR 14: Work Gates And Criteria
+### PR 15: Work Gates And Criteria
 
 - Add acceptance criteria and lightweight human gates.
 - Link gates to runtime `waiting` workflows where appropriate.
 - Keep LangGraph interrupt payloads in LangGraph checkpoint state.
 
-### PR 15: Agent Workflow Definition Plane
+### PR 16: Agent Workflow Definition Plane
 
 - Add Agent Workflow DSL schema/validation.
 - Add definition/version persistence.

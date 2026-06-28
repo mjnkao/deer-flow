@@ -65,6 +65,32 @@ async def test_memory_work_unit_store_update_is_user_scoped():
     assert accepted["status"] == "ready"
 
 
+@pytest.mark.anyio
+async def test_memory_work_unit_store_can_clear_nullable_fields():
+    store = MemoryWorkUnitStore()
+    await store.create(
+        work_unit_id="work-clear-memory",
+        title="Clear nullable refs",
+        assignee_ref="lead_agent",
+        thread_id="thread-1",
+        external_ref="EXT-1",
+        labels=["stale"],
+    )
+
+    updated = await store.update(
+        "work-clear-memory",
+        assignee_ref=None,
+        thread_id=None,
+        external_ref=None,
+        labels=None,
+    )
+
+    assert updated["assignee_ref"] is None
+    assert updated["thread_id"] is None
+    assert updated["external_ref"] is None
+    assert updated["labels"] == []
+
+
 class TestWorkUnitRepository:
     @pytest.mark.anyio
     async def test_create_list_update_and_events(self, tmp_path):
@@ -115,6 +141,34 @@ class TestWorkUnitRepository:
 
             assert rejected is None
             assert accepted["status"] == "ready"
+        finally:
+            await _cleanup()
+
+    @pytest.mark.anyio
+    async def test_update_can_clear_nullable_fields(self, tmp_path):
+        repo = await _make_repo(tmp_path)
+        try:
+            await repo.create(
+                work_unit_id="work-sql-clear",
+                title="Clear nullable SQL fields",
+                assignee_ref="lead_agent",
+                thread_id="thread-sql",
+                external_ref="EXT-SQL",
+                labels=["old"],
+            )
+
+            updated = await repo.update(
+                "work-sql-clear",
+                assignee_ref=None,
+                thread_id=None,
+                external_ref=None,
+                labels=None,
+            )
+
+            assert updated["assignee_ref"] is None
+            assert updated["thread_id"] is None
+            assert updated["external_ref"] is None
+            assert updated["labels"] == []
         finally:
             await _cleanup()
 
