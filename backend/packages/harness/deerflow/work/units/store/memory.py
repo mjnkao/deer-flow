@@ -10,6 +10,20 @@ from typing import Any
 from deerflow.work.units.store.base import WorkUnitStore
 from deerflow.utils.time import coerce_iso
 
+_NULLABLE_UPDATE_FIELDS = {
+    "description",
+    "assignee_ref",
+    "reporter_ref",
+    "due_at",
+    "workflow_id",
+    "thread_id",
+    "run_id",
+    "source",
+    "external_type",
+    "external_ref",
+    "external_url",
+}
+
 
 class MemoryWorkUnitStore(WorkUnitStore):
     def __init__(self) -> None:
@@ -118,12 +132,13 @@ class MemoryWorkUnitStore(WorkUnitStore):
         if user_id is not None and row.get("user_id") != user_id:
             return None
         for key, value in kwargs.items():
-            if value is None:
-                continue
             if key == "metadata":
-                row["metadata"] = {**(row.get("metadata") or {}), **value}
+                row["metadata"] = {**(row.get("metadata") or {}), **(value or {})}
             elif key == "labels":
-                row["labels"] = list(value)
+                row["labels"] = list(value or [])
+            elif value is None:
+                if key in _NULLABLE_UPDATE_FIELDS:
+                    row[key] = None
             else:
                 row[key] = value
         row["updated_at"] = self._now()

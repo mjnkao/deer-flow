@@ -166,7 +166,17 @@ visual workflow designer is not accepted.
 - Add a runtime-bound Work Unit tool so agents must call a tool before claiming
   a status change.
 
-### Work PR 2: WorkBoard MVP
+### Work PR 2: Agent Tools
+
+- Expose a global `work_units` tool when the Work Module is enabled.
+- Let agents create, list, inspect, and update generic work units through the
+  same store/API contract as external PM adapters.
+- Keep runtime-bound `work_unit` updates scoped to the work unit attached by
+  the calling surface.
+- Record tool writes as `work_events` so UI and adapters can audit agent
+  actions.
+
+### Work PR 3: WorkBoard MVP
 
 - Add `/workspace/work` route.
 - Show board columns by status.
@@ -174,13 +184,13 @@ visual workflow designer is not accepted.
 - Let agent/runtime updates move status through the Work Unit tool/API.
 - Link to thread/run/workflow trace when refs exist.
 
-### Work PR 3: External PM Binding Contract
+### Work PR 4: External PM Binding Contract
 
 - Add adapter interface docs and sync metadata conventions.
 - Add import/export examples for Trello/Jira/Plane-style objects.
 - No hard dependency on a PM vendor.
 
-### Work PR 4: Gates And Criteria
+### Work PR 5: Gates And Criteria
 
 - Add acceptance criteria and lightweight human gates.
 - Link gates to durable workflow `waiting` states where applicable.
@@ -191,7 +201,7 @@ visual workflow designer is not accepted.
 The smallest useful demo is Work PR 1-3:
 
 1. Create a work unit from the WorkBoard.
-2. Move it across board statuses.
+2. Ask the assigned agent to inspect or update it through the Work Unit tool.
 3. Attach a `workflow_id` or `run_id` from a normal DeerFlow chat.
 4. Open the workflow trace from the work unit.
 

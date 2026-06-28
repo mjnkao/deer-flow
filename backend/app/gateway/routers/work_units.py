@@ -78,12 +78,19 @@ def _validate_enum_field(field: str, value: str | None, enum_cls: type) -> str |
 
 
 def _validate_work_unit_fields(values: dict[str, Any]) -> dict[str, Any]:
+    for field in ("title", "status", "priority", "source_type"):
+        if field in values and values[field] is None:
+            raise HTTPException(status_code=400, detail=f"{field} cannot be null")
     if "status" in values:
         values["status"] = _validate_enum_field("status", values.get("status"), WorkUnitStatus)
     if "priority" in values:
         values["priority"] = _validate_enum_field("priority", values.get("priority"), WorkUnitPriority)
     if "source_type" in values:
         values["source_type"] = _validate_enum_field("source_type", values.get("source_type"), WorkUnitSourceType)
+    if "labels" in values and values["labels"] is None:
+        values["labels"] = []
+    if "metadata" in values and values["metadata"] is None:
+        values["metadata"] = {}
     return values
 
 
