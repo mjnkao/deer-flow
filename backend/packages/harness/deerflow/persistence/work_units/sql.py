@@ -14,6 +14,20 @@ from deerflow.persistence.work_units.model import WorkEventRow, WorkUnitRow
 from deerflow.work.units.store.base import WorkUnitStore
 from deerflow.utils.time import coerce_iso
 
+_NULLABLE_UPDATE_FIELDS = {
+    "description",
+    "assignee_ref",
+    "reporter_ref",
+    "due_at",
+    "workflow_id",
+    "thread_id",
+    "run_id",
+    "source",
+    "external_type",
+    "external_ref",
+    "external_url",
+}
+
 
 class WorkUnitRepository(WorkUnitStore):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -165,14 +179,15 @@ class WorkUnitRepository(WorkUnitStore):
                 return None
             values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
             for key, value in kwargs.items():
-                if value is None:
-                    continue
                 if key == "metadata":
                     values["metadata_json"] = {**(row.metadata_json or {}), **(self._safe_json(value) or {})}
                 elif key == "labels":
-                    values["labels_json"] = list(value)
+                    values["labels_json"] = list(value or [])
                 elif key == "due_at":
                     values["due_at"] = self._coerce_datetime(value)
+                elif value is None:
+                    if key in _NULLABLE_UPDATE_FIELDS:
+                        values[key] = None
                 else:
                     values[key] = value
             stmt = update(WorkUnitRow).where(WorkUnitRow.work_unit_id == work_unit_id)
