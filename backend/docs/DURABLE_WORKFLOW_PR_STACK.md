@@ -8,6 +8,9 @@ milestone: existing DeerFlow run APIs keep their current behavior, but each run
 also has durable workflow identity, idempotency, lifecycle events, and an
 inspectable trace.
 
+For current upstream review state, CLA/RFC blockers, and instructions for
+future agents, see `DEERFLOW_X_UPSTREAM_REVIEW_HANDOFF.md`.
+
 ## Review Principles
 
 - Keep the Durable Workflow Runtime layer generic. Do not introduce AICOS, PM
