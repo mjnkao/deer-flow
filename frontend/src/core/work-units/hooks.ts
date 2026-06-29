@@ -15,8 +15,10 @@ export function useWorkUnits(options: { enabled?: boolean } = {}) {
     queryKey: workUnitsQueryKey,
     queryFn: () => listWorkUnits({ limit: 500 }),
     enabled: options.enabled ?? true,
-    refetchInterval: 10_000,
-    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
   });
 }
 

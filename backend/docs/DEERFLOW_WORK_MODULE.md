@@ -61,12 +61,16 @@ modules:
   work:
     enabled: true
     api_enabled: true
+    global_tools_enabled: false
 ```
 
 - `durable_workflows.enabled=false` preserves the legacy run path with no
   automatic workflow envelope.
 - `work.enabled=false` disables Work Unit store construction and Work Unit API
   exposure.
+- `work.global_tools_enabled=false` keeps the generic `work_units` tool out of
+  normal chat/tool schemas. Runtime surfaces can still attach a scoped
+  `work_unit` tool to a single bound work unit.
 - A future WorkBoard UI can depend on Work Module, but Work Module must not
   depend on WorkBoard.
 
@@ -168,7 +172,8 @@ visual workflow designer is not accepted.
 
 ### Work PR 2: Agent Tools
 
-- Expose a global `work_units` tool when the Work Module is enabled.
+- Expose a global `work_units` tool only when explicitly enabled by module
+  config.
 - Let agents create, list, inspect, and update generic work units through the
   same store/API contract as external PM adapters.
 - Keep runtime-bound `work_unit` updates scoped to the work unit attached by

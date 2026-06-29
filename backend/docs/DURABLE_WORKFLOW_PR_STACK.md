@@ -271,7 +271,9 @@ required for a minimal durable runtime deployment.
 
 ### PR 12: Work Unit Agent Tools
 
-- Expose `work_units` when `modules.work.enabled=true`.
+- Expose the generic `work_units` tool only when
+  `modules.work.global_tools_enabled=true`; keep runtime-bound `work_unit`
+  tools available for a single attached work unit.
 - Let agents create, list, inspect, and update Work Units through the generic
   Work Module store.
 - Keep runtime-bound `work_unit` status updates scoped to the attached Work

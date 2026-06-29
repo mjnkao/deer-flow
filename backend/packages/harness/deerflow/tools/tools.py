@@ -95,7 +95,8 @@ def get_available_tools(
 
         builtin_tools.append(skill_manage_tool)
 
-    if getattr(getattr(config, "modules", None), "work", None) is not None and config.modules.work.enabled:
+    work_module = getattr(getattr(config, "modules", None), "work", None)
+    if work_module is not None and work_module.enabled and getattr(work_module, "global_tools_enabled", False):
         builtin_tools.append(work_units_tool)
 
     # Add subagent tools only if enabled via runtime parameter

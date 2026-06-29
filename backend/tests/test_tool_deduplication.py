@@ -59,7 +59,7 @@ def _make_minimal_config(tools):
     config.models = []
     config.tool_search.enabled = False
     config.skill_evolution.enabled = False
-    config.modules = SimpleNamespace(work=SimpleNamespace(enabled=False))
+    config.modules = SimpleNamespace(work=SimpleNamespace(enabled=False, global_tools_enabled=False))
     config.sandbox = MagicMock()
     config.acp_agents = {}
     return config
@@ -204,11 +204,14 @@ def test_duplicate_triggers_warning(mock_bash, mock_cfg, caplog):
 
 @patch("deerflow.tools.tools.get_app_config")
 @patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
-def test_work_units_tool_respects_work_module_gate(mock_bash, mock_cfg):
-    """The generic Work Unit tool is only exposed when the Work Module is enabled."""
+def test_work_units_tool_respects_work_module_tool_gate(mock_bash, mock_cfg):
+    """The generic Work Unit tool is exposed only when global tools are explicitly enabled."""
     disabled_config = _make_minimal_config([])
     enabled_config = _make_minimal_config([])
     enabled_config.modules.work.enabled = True
+    enabled_config.modules.work.global_tools_enabled = True
+    api_only_config = _make_minimal_config([])
+    api_only_config.modules.work.enabled = True
 
     with patch("deerflow.tools.tools.BUILTIN_TOOLS", []):
         disabled_names = [
@@ -216,6 +219,13 @@ def test_work_units_tool_respects_work_module_gate(mock_bash, mock_cfg):
             for tool in get_available_tools(
                 include_mcp=False,
                 app_config=disabled_config,
+            )
+        ]
+        api_only_names = [
+            tool.name
+            for tool in get_available_tools(
+                include_mcp=False,
+                app_config=api_only_config,
             )
         ]
         enabled_names = [
@@ -227,4 +237,5 @@ def test_work_units_tool_respects_work_module_gate(mock_bash, mock_cfg):
         ]
 
     assert "work_units" not in disabled_names
+    assert "work_units" not in api_only_names
     assert "work_units" in enabled_names

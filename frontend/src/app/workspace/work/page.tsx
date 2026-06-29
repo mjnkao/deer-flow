@@ -1,11 +1,9 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ChevronDown,
   ChevronRight,
-  ExternalLink,
   FileText,
   ListPlus,
   MessageSquare,
@@ -13,8 +11,8 @@ import {
   PanelRightOpen,
   PlusIcon,
   Search,
-  Send,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
@@ -45,23 +43,37 @@ import {
   WorkspaceHeader,
 } from "@/components/workspace/workspace-container";
 import { useAgents } from "@/core/agents";
-import { isHiddenFromUIMessage } from "@/core/messages/utils";
 import { useModuleFlags } from "@/core/modules";
-import { useLocalSettings } from "@/core/settings";
-import { useThreadStream } from "@/core/threads/hooks";
-import { textOfMessage } from "@/core/threads/utils";
-import { uuid } from "@/core/utils/uuid";
 import {
-  workUnitsQueryKey,
   useCreateWorkUnit,
   useUpdateWorkUnit,
   useWorkUnits,
   type WorkUnit,
 } from "@/core/work-units";
-import { fetchWorkflowTimeline } from "@/core/workflows/api";
-import type { WorkflowTimelineEvent } from "@/core/workflows/api";
 
 const LEAD_AGENT_NAME = "lead_agent";
+
+const WorkUnitChatPanel = dynamic(
+  () => import("./work-unit-chat-panel").then((mod) => mod.WorkUnitChatPanel),
+  {
+    loading: () => (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-center text-sm">
+        Loading chat...
+      </div>
+    ),
+  },
+);
+
+const WorkUnitTracePanel = dynamic(
+  () => import("./work-unit-trace-panel").then((mod) => mod.WorkUnitTracePanel),
+  {
+    loading: () => (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-center text-sm">
+        Loading trace...
+      </div>
+    ),
+  },
+);
 
 const STATUS_COLUMNS = [
   {
@@ -134,36 +146,6 @@ function statusLabel(status: string) {
 
 function priorityLabel(priority: string) {
   return PRIORITIES.find((item) => item.value === priority)?.label ?? priority;
-}
-
-function buildWorkUnitPrompt(item: WorkUnit | undefined, userMessage: string) {
-  if (!item) return userMessage;
-  const fields = [
-    ["work_unit_id", item.work_unit_id],
-    ["title", item.title],
-    ["status", statusLabel(item.status)],
-    ["priority", priorityLabel(item.priority)],
-    ["assignee_ref", item.assignee_ref ?? ""],
-    ["description", item.description ?? ""],
-    ["tags", item.labels.join(", ")],
-    ["workflow_id", item.workflow_id ?? ""],
-    ["thread_id", item.thread_id ?? ""],
-    ["run_id", item.run_id ?? ""],
-  ]
-    .filter(([, value]) => String(value).trim().length > 0)
-    .map(([key, value]) => `- ${key}: ${value}`)
-    .join("\n");
-
-  return [
-    "Work Unit Context",
-    fields,
-    "",
-    "User request",
-    userMessage,
-    "",
-    "Use the Work Unit Context above as the authoritative work record. If the user asks you to execute or continue the work unit, act on this context rather than asking them to paste it again.",
-    "If you need to change the Work Unit status, call the work_unit tool first and only claim the change after the tool returns ok=true.",
-  ].join("\n");
 }
 
 function agentOptionsFromDeerFlow(agents: Array<{ name: string }>) {
@@ -953,303 +935,6 @@ function WorkUnitDetailPanel({
         )}
     </aside>
   );
-}
-
-function WorkUnitChatPanel({
-  agents,
-  item,
-}: {
-  agents: Array<{ name: string }>;
-  item?: WorkUnit;
-}) {
-  const [settings] = useLocalSettings();
-  const [selectedAgent, setSelectedAgent] = useState(LEAD_AGENT_NAME);
-  const [draftThreadId, setDraftThreadId] = useState(() => uuid());
-  const [persistedThreadId, setPersistedThreadId] = useState<string | null>(
-    item?.thread_id ?? null,
-  );
-  const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
-  const updateWorkUnit = useUpdateWorkUnit();
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    const nextAgent =
-      item?.assignee_ref && agents.some((agent) => agent.name === item.assignee_ref)
-        ? item.assignee_ref
-        : LEAD_AGENT_NAME;
-    setSelectedAgent(nextAgent);
-    setDraftThreadId(uuid());
-    setPersistedThreadId(item?.thread_id ?? null);
-    setMessage("");
-  }, [agents, item?.assignee_ref, item?.thread_id, item?.work_unit_id]);
-
-  const chatContext = useMemo(
-    () => ({
-      ...settings.context,
-      agent_name: selectedAgent === LEAD_AGENT_NAME ? undefined : selectedAgent,
-    }),
-    [selectedAgent, settings.context],
-  );
-
-  const { thread, sendMessage } = useThreadStream({
-    threadId: persistedThreadId ?? undefined,
-    displayThreadId: draftThreadId,
-    context: chatContext,
-    onToolEnd: (event) => {
-      if (event.name === "work_unit" || event.name === "work_units") {
-        void queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-      }
-    },
-    onFinish: () => {
-      void queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-    },
-    onStart: (createdThreadId) => {
-      setPersistedThreadId(createdThreadId);
-      if (item && item.thread_id !== createdThreadId) {
-        void updateWorkUnit.mutateAsync({
-          workUnitId: item.work_unit_id,
-          request: { thread_id: createdThreadId },
-        });
-      }
-    },
-  });
-
-  const messages = (thread.messages ?? []).filter(
-    (chatMessage) => !isHiddenFromUIMessage(chatMessage),
-  );
-  const chatThreadId = persistedThreadId ?? draftThreadId;
-  const chatPath =
-    selectedAgent === LEAD_AGENT_NAME
-      ? `/workspace/chats/${chatThreadId}`
-      : `/workspace/agents/${encodeURIComponent(selectedAgent)}/chats/${chatThreadId}`;
-
-  async function handleSend(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = message.trim();
-    if (!text || sending || !item) return;
-    const promptText = buildWorkUnitPrompt(item, text);
-    setSending(true);
-    setMessage("");
-    try {
-      if (!persistedThreadId && !item.thread_id) {
-        setPersistedThreadId(chatThreadId);
-        await updateWorkUnit.mutateAsync({
-          workUnitId: item.work_unit_id,
-          request: { thread_id: chatThreadId },
-        });
-      }
-      await sendMessage(
-        chatThreadId,
-        { text: promptText, files: [] },
-        {
-          work_unit_id: item?.work_unit_id,
-          work_unit_title: item?.title,
-          work_unit_status: item?.status,
-          work_unit_priority: item?.priority,
-          work_unit_description: item?.description,
-          work_unit_assignee_ref: item?.assignee_ref,
-          source: "workboard",
-        },
-        {
-          additionalKwargs: {
-            work_unit_id: item?.work_unit_id,
-            work_unit_user_text: text,
-            source: "workboard",
-          },
-        },
-      );
-    } catch (error) {
-      setMessage(text);
-      throw error;
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b p-3">
-        <Select value={selectedAgent} onValueChange={setSelectedAgent}>
-          <SelectTrigger aria-label="Agent" className="h-9 min-w-0 flex-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {agents.map((agent) => (
-              <SelectItem key={agent.name} value={agent.name}>
-                {agent.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {persistedThreadId ? (
-          <Button asChild variant="outline" size="icon" aria-label="Open full chat">
-            <Link href={chatPath}>
-              <ExternalLink />
-            </Link>
-          </Button>
-        ) : (
-          <Button variant="outline" size="icon" aria-label="Open full chat" disabled>
-            <ExternalLink />
-          </Button>
-        )}
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-2 p-3">
-          {messages.length === 0 ? (
-            <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
-              Start a chat about this work unit.
-            </div>
-          ) : (
-            messages.map((chatMessage, index) => {
-              const isHuman = chatMessage.type === "human";
-              const userText = Reflect.get(
-                chatMessage.additional_kwargs ?? {},
-                "work_unit_user_text",
-              );
-              const text = isHuman && typeof userText === "string" ? userText : textOfMessage(chatMessage);
-              if (!text) return null;
-              return (
-                <div
-                  key={chatMessage.id ?? index}
-                  className={`rounded-md border p-2 text-sm ${
-                    isHuman ? "bg-muted/30 ml-6" : "bg-background mr-6"
-                  }`}
-                >
-                  <div className="text-muted-foreground mb-1 text-[10px] font-semibold uppercase">
-                    {isHuman ? "You" : selectedAgent}
-                  </div>
-                  <div className="whitespace-pre-wrap leading-relaxed">{text}</div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </ScrollArea>
-      <form className="grid gap-2 border-t p-3" onSubmit={(event) => void handleSend(event)}>
-        <Textarea
-          className="min-h-20 resize-none"
-          placeholder="Message the agent about this work unit"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key !== "Enter" ||
-              event.shiftKey ||
-              event.nativeEvent.isComposing
-            ) {
-              return;
-            }
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }}
-        />
-        <Button type="submit" disabled={sending || !message.trim()}>
-          <Send />
-          Send
-        </Button>
-      </form>
-    </div>
-  );
-}
-
-function WorkUnitTracePanel({ item }: { item?: WorkUnit }) {
-  const workflowId = item?.workflow_id;
-  const traceQuery = useQuery({
-    queryKey: ["workflow-timeline", workflowId],
-    queryFn: () => fetchWorkflowTimeline(workflowId!),
-    enabled: Boolean(workflowId),
-    refetchOnWindowFocus: false,
-  });
-
-  if (!item) {
-    return (
-      <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-center text-sm">
-        Select a Work Unit
-      </div>
-    );
-  }
-
-  if (!workflowId) {
-    return (
-      <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-center text-sm">
-        No workflow trace is linked to this Work Unit yet.
-      </div>
-    );
-  }
-
-  const events = traceQuery.data?.timeline ?? [];
-
-  return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="space-y-4 p-4">
-        <div className="space-y-2">
-          <div className="text-muted-foreground text-[11px] font-semibold uppercase">Workflow trace</div>
-          <RefRow label="workflow_id" value={workflowId} />
-          <RefRow label="run_id" value={item.run_id} />
-        </div>
-        {traceQuery.isLoading ? (
-          <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
-            Loading trace...
-          </div>
-        ) : traceQuery.error ? (
-          <div className="text-destructive rounded-md border p-3 text-sm">
-            {traceQuery.error instanceof Error ? traceQuery.error.message : "Failed to load trace"}
-          </div>
-        ) : events.length === 0 ? (
-          <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
-            No trace events yet.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {events.map((event, index) => (
-              <TraceEventCard key={`${event.kind}-${event.seq ?? index}-${event.event_type}`} event={event} />
-            ))}
-          </div>
-        )}
-      </div>
-    </ScrollArea>
-  );
-}
-
-function TraceEventCard({ event }: { event: WorkflowTimelineEvent }) {
-  const content = formatTraceContent(event.content ?? event.metadata);
-
-  return (
-    <article className="bg-muted/15 rounded-md border p-3 text-xs">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold leading-snug">{event.event_type}</div>
-          <div className="text-muted-foreground mt-1 truncate">
-            {event.created_at ? relativeDate(event.created_at) : "undated"}
-            {typeof event.seq === "number" ? ` · seq ${event.seq}` : ""}
-          </div>
-        </div>
-        <Badge variant="outline" className="shrink-0">
-          {event.kind === "workflow_event" ? "Workflow" : "Run"}
-        </Badge>
-      </div>
-      {event.category && (
-        <div className="text-muted-foreground mt-2 font-medium uppercase">{event.category}</div>
-      )}
-      {content && (
-        <pre className="bg-background/70 text-muted-foreground mt-2 max-h-32 overflow-auto rounded border p-2 font-mono text-[11px] whitespace-pre-wrap">
-          {content}
-        </pre>
-      )}
-    </article>
-  );
-}
-
-function formatTraceContent(value: unknown) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.length > 700 ? `${value.slice(0, 700)}...` : value;
-  try {
-    const text = JSON.stringify(value, null, 2);
-    return text.length > 700 ? `${text.slice(0, 700)}...` : text;
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
 }
 
 function InfoCell({ label, value }: { label: string; value?: string | null }) {

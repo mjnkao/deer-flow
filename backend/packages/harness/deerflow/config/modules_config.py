@@ -18,6 +18,13 @@ class WorkModuleConfig(BaseModel):
 
     enabled: bool = Field(default=True, description="Enable generic work unit storage and API support.")
     api_enabled: bool = Field(default=True, description="Expose generic work unit APIs.")
+    global_tools_enabled: bool = Field(
+        default=False,
+        description=(
+            "Expose the generic work_units tool to every agent. Runtime-bound "
+            "work_unit tools can still be attached to a specific work unit when this is false."
+        ),
+    )
 
 
 class ModulesConfig(BaseModel):
