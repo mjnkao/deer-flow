@@ -288,6 +288,41 @@ def test_make_lead_agent_reads_runtime_options_from_context(monkeypatch):
     assert result["model"] is not None
 
 
+def test_make_lead_agent_injects_scoped_work_unit_tool_from_context(monkeypatch):
+    app_config = _make_app_config([_make_model("safe-model", supports_thinking=False)])
+
+    import deerflow.tools as tools_module
+
+    get_available_tools = MagicMock(return_value=[])
+    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
+    monkeypatch.setattr(tools_module, "get_available_tools", get_available_tools)
+    monkeypatch.setattr(lead_agent_module, "build_middlewares", lambda config, model_name, agent_name=None, **kwargs: [])
+    monkeypatch.setattr(lead_agent_module, "build_tracing_callbacks", lambda: [])
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "create_chat_model",
+        lambda *, name, thinking_enabled, reasoning_effort=None, app_config=None, attach_tracing=True: object(),
+    )
+    monkeypatch.setattr(lead_agent_module, "create_agent", lambda **kwargs: kwargs)
+
+    result = lead_agent_module.make_lead_agent(
+        {
+            "context": {
+                "model_name": "safe-model",
+                "work_unit_id": "work-unit-123",
+                "user_id": "owner-1",
+            }
+        }
+    )
+
+    tool_names = {tool.name for tool in result["tools"]}
+
+    assert "work_unit" in tool_names
+    assert "work_units" not in tool_names
+    get_available_tools.assert_called_once_with(model_name="safe-model", groups=None, subagent_enabled=False, app_config=app_config)
+
+
 def test_make_lead_agent_rejects_invalid_bootstrap_agent_name(monkeypatch):
     app_config = _make_app_config([_make_model("safe-model", supports_thinking=False)])
 
