@@ -4,12 +4,11 @@ Status: implementation plan
 Date: 2026-06-26
 Scope: first-priority PR stack for DeerFlow durable workflow runtime, shared identity, workflow events, and runtime adoption
 
-## Relationship To Platform Plan
+## Relationship To DeerFlow Runtime
 
 This plan is the focused execution track for the Durable Workflow Runtime plane
-in [Durable Agent Platform Plan](DURABLE_AGENT_PLATFORM_PLAN.md). It should land
-before the Agent Workflow Definition, Compiler/Run Binding, Work Module,
-WorkBoard, and PM adapter tracks depend on it.
+in DeerFlow core. It should land before the Agent Workflow Definition,
+Compiler/Run Binding, Work Module, and WorkBoard tracks depend on it.
 
 The runtime layer is the shared foundation because it gives all later modules a
 stable way to answer:
@@ -40,7 +39,8 @@ Standardize these names before expanding module surface area:
 - `checkpoint_id`: LangGraph checkpoint ref.
 - `step_id`: designed workflow node/step id; reserved for later projection.
 - `work_unit_id`: generic task/card/issue id; Work module, not runtime core.
-- `external_binding_id`: PM/external object mapping id; Work module/adapters.
+- `external_binding_id`: external object mapping id; Work module or
+  deployment-owned integrations.
 
 Runtime core owns `workflow_id` and `workflow_event_id`. It may store refs to
 the other ids, but it must not require the modules that own them.
@@ -115,7 +115,7 @@ DeerFlow runtime owns:
 
 The runtime layer stores refs to LangGraph state, never checkpoint payloads.
 
-## Minimal Data Model
+## Core Data Model
 
 ### `workflows`
 
@@ -210,10 +210,22 @@ development.
 ## PR Stack
 
 The stack is ordered so later PRs are optional expansions. If review stops at a
-given prefix, the runtime should still be useful at that maturity level. The
-first upstream-ready community demo should include PR 1 through PR 5: by then a
-normal DeerFlow run has a durable workflow identity, idempotent intake, and a
-visible run trace that explains what happened.
+given prefix, the runtime should still be useful at that maturity level.
+
+Submit the work as one coherent Durable Workflow Runtime package, but make the
+review groups explicit:
+
+- PR 1-5: Core Runtime Package. A normal DeerFlow run has durable workflow
+  identity, idempotent intake, lifecycle events, a visible run trace, and
+  explicit orphan recovery visibility.
+- PR 6-10: Hardening/Scale Package. Binding, channel/dashboard intake,
+  waiting/resume, and worker readiness show the production path while remaining
+  separable from the first landing target.
+
+For the current open GitHub PRs, #3814 combines workflow store and lifecycle
+events, and #3848 is the fifth Core Runtime Package PR for recovery/orphan
+reconciliation. If maintainers prefer a finer split, #3814 can be separated
+into store and event PRs before final review.
 
 - PR 1-2: schema/store foundation.
 - PR 1-3: durable envelope plus lifecycle events.
@@ -240,15 +252,17 @@ the benefit during normal chat/run usage:
   without copying LangGraph checkpoint payloads.
 
 This milestone is still runtime-only. It intentionally does not include Work
-Units, WorkBoard, PM adapters, visual workflow design, or an external durable
-engine dependency.
+Units, WorkBoard, PM integrations, visual workflow design, or an external
+workflow engine dependency.
 
 ### PR 1: Runtime Architecture and Shared Contracts
 
 Scope:
 
+- Add `DURABLE_WORKFLOW_CORE_RFC.md` as the English package RFC/background
+  anchor.
 - Add this plan.
-- Link it from the platform plan and docs index.
+- Link it from the RFC/frontdoor docs and docs index.
 - Align terminology with `DURABLE_WORKFLOW_FRONTDOOR.md`.
 
 Acceptance:
@@ -258,41 +272,30 @@ Acceptance:
 - docs define initial runtime statuses and event contract;
 - no runtime behavior changes.
 
-### PR 2: Workflow Envelope Schema and Store
+### PR 2: Workflow Envelope Schema, Store, And Events
 
 Scope:
 
 - Add runtime enums for workflow kind/source/status.
 - Add `workflows` ORM model and migration.
+- Add `workflow_events` ORM model and migration.
 - Add in-memory and SQL store implementations.
 - Implement `create_or_get`, `get`, `list`, `update_status`,
-  `bind_runtime`, `claim_next`, and `release_for_retry`.
+  `bind_runtime`, `claim_next`, `release_for_retry`, `append_event`, and
+  `list_events`.
 - Wire store dependency without changing endpoint behavior.
 
 Acceptance:
 
 - idempotent create returns existing workflow for duplicate key;
 - lease claim is atomic under SQL store;
+- event seq is monotonic per workflow;
+- timeline can include workflow events even before a run exists;
+- no run event duplication;
 - existing run APIs and channels behave unchanged;
 - tests cover memory and SQL store behavior.
 
-### PR 3: Workflow Events
-
-Scope:
-
-- Add `workflow_events` ORM model and migration.
-- Add `append_event`.
-- Emit events for create/dedupe/status/bind/claim/retry.
-- Add event list and timeline projection helpers.
-
-Acceptance:
-
-- every projection mutation can append a lifecycle fact;
-- event seq is monotonic per workflow;
-- timeline can include workflow events even before a run exists;
-- no run event duplication.
-
-### PR 4: Durable Run Trace APIs
+### PR 3: Durable Run Trace APIs
 
 Scope:
 
@@ -313,7 +316,7 @@ Acceptance:
 - one workflow timeline correlates workflow lifecycle events with run events;
 - endpoint additions do not alter existing run API compatibility.
 
-### PR 5: Run API Compatibility Wrapper and Status Projection
+### PR 4: Run API Compatibility Wrapper and Status Projection
 
 Scope:
 
@@ -334,7 +337,7 @@ Acceptance:
 - workflow terminal status matches the bound run terminal status;
 - tests cover direct run creation.
 
-### PR 6: Recovery and Reconciliation
+### PR 5: Recovery and Reconciliation
 
 Scope:
 
@@ -349,14 +352,14 @@ Acceptance:
 - no workflow is silently left `running` without an owner;
 - automatic retry is conservative and policy-driven.
 
-### PR 7: Deterministic Binding Resolver
+### PR 6: Deterministic Binding Resolver
 
 Scope:
 
 - Add generic resolver for explicit `thread_id`, external conversation refs,
   checkpoint refs, and active run binding.
 - Record ambiguous candidates in metadata.
-- Do not use semantic guessing in adapters.
+- Do not use semantic guessing in channel/source-specific code.
 
 Acceptance:
 
@@ -364,7 +367,7 @@ Acceptance:
 - unambiguous channel conversation mappings bind deterministically;
 - ambiguous cases are persisted and surfaced, not guessed.
 
-### PR 8: Channel and Dashboard Intake Adoption
+### PR 7: Channel and Dashboard Intake Adoption
 
 Scope:
 
@@ -378,7 +381,7 @@ Acceptance:
 - channel retries dedupe by stable external event/message ids;
 - channel behavior remains compatible for users.
 
-### PR 9: Waiting, Resume, and Human-In-The-Loop Refs
+### PR 8: Waiting, Resume, and Human-In-The-Loop Refs
 
 Scope:
 
@@ -394,7 +397,7 @@ Acceptance:
 - resume creates/uses a durable workflow envelope;
 - LangGraph remains owner of interrupt/resume state.
 
-### PR 10: Worker Pool Readiness
+### PR 9: Worker Pool Readiness
 
 Scope:
 
@@ -407,30 +410,34 @@ Acceptance:
 
 - Postgres deployments have a clear horizontal worker contract;
 - local SQLite/default deployments remain simple;
-- no mandatory external orchestrator dependency.
+- no mandatory external workflow engine dependency.
 
-## First Implementation Slice
+### PR 10: Optional Split Point
 
-The safest first implementation slice is PR 1 plus PR 2 without runtime
-adoption:
+If maintainers want exactly ten PRs, split either waiting/resume or worker
+readiness into two smaller hardening PRs during final packaging. Do not create a
+new conceptual dependency just to fill a number.
+
+## Review Grouping
+
+The safest first code landing target is PR 1-5 as the Core Runtime Package:
 
 - docs and shared contracts;
 - `workflows` schema/store;
 - idempotent create;
-- lease primitives;
+- lifecycle events;
 - run/checkpoint binding fields;
-- focused repository tests.
+- read APIs and timeline projection;
+- existing run API compatibility wrapper;
+- recovery/orphan reconciliation;
+- focused repository, router, and gateway tests.
 
-This creates the durable foundation without changing existing run/channel
-behavior. PR 3 should follow quickly because `workflow_events` is the audit and
-timeline foundation for enterprise operation.
+This is not too small: maintainers can see the end-to-end value during normal
+chat/run usage without installing Work Module or WorkBoard.
 
-For the first community-visible stack, continue through PR 5 before opening the
-main upstream discussion. PR 4 makes the runtime inspectable as a Durable Run
-Trace. PR 5 makes existing DeerFlow run APIs update that trace through terminal
-status. PR 6 and later are important for production hardening, but PR 1-5 is
-the smallest stack that lets a normal user see value without installing a Work
-Module, WorkBoard, or external orchestrator.
+PR 6-10 should be submitted as the Hardening/Scale Package. It is important for
+production confidence, but it can be reviewed after the core package if
+maintainers want staged landing.
 
 ## Defer Explicitly
 
@@ -440,7 +447,7 @@ Do not include in the runtime-first stack:
 - visual designer UI;
 - Work Unit schemas;
 - WorkBoard;
-- PM adapters;
+- PM connector implementations;
 - Restate/Temporal/Hatchet dependencies;
 - AICOS-X concepts;
 - checkpoint value copies;
