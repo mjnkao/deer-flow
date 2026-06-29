@@ -17,6 +17,7 @@ This directory contains detailed documentation for the DeerFlow backend.
 | Document | Description |
 |----------|-------------|
 | [STREAMING.md](STREAMING.md) | Token-level streaming design: Gateway vs DeerFlowClient paths, `stream_mode` semantics, per-id dedup |
+| [DURABLE_WORKFLOW_CORE_RFC.md](DURABLE_WORKFLOW_CORE_RFC.md) | Upstream RFC draft for a native Durable Workflow Runtime Layer in DeerFlow core |
 | [DURABLE_WORKFLOW_RUNTIME_PLAN.md](DURABLE_WORKFLOW_RUNTIME_PLAN.md) | Runtime-first PR plan for workflow identity, status, events, idempotency, lease, and recovery |
 | [DURABLE_WORKFLOW_FRONTDOOR.md](DURABLE_WORKFLOW_FRONTDOOR.md) | Durable workflow intake/frontdoor architecture and PR stack |
 | [DURABLE_WORKFLOW_PR_STACK.md](DURABLE_WORKFLOW_PR_STACK.md) | Prefix-safe upstream PR sequence for durable runtime, recovery, intake, and worker readiness |
@@ -55,6 +56,7 @@ docs/
 ├── summarization.md           # Summarization feature
 ├── plan_mode_usage.md         # Plan mode feature
 ├── STREAMING.md               # Token-level streaming design
+├── DURABLE_WORKFLOW_CORE_RFC.md # Upstream durable workflow core RFC draft
 ├── DURABLE_WORKFLOW_RUNTIME_PLAN.md # Runtime-first durable workflow PR plan
 ├── DURABLE_WORKFLOW_FRONTDOOR.md # Durable workflow frontdoor design
 ├── DURABLE_WORKFLOW_PR_STACK.md # Prefix-safe durable runtime PR sequence
