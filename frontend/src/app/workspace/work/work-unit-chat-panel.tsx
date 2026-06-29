@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Send } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,7 @@ export function WorkUnitChatPanel({
   );
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const updateWorkUnit = useUpdateWorkUnit();
   const queryClient = useQueryClient();
 
@@ -122,11 +123,17 @@ export function WorkUnitChatPanel({
   const messages = (thread.messages ?? []).filter(
     (chatMessage) => !isHiddenFromUIMessage(chatMessage),
   );
+  const latestMessage = messages[messages.length - 1];
+  const latestMessageText = latestMessage ? textOfMessage(latestMessage) : "";
   const chatThreadId = persistedThreadId ?? draftThreadId;
   const chatPath =
     selectedAgent === LEAD_AGENT_NAME
       ? `/workspace/chats/${chatThreadId}`
       : `/workspace/agents/${encodeURIComponent(selectedAgent)}/chats/${chatThreadId}`;
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end", inline: "nearest" });
+  }, [item?.work_unit_id, latestMessageText, messages.length, persistedThreadId]);
 
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -231,6 +238,7 @@ export function WorkUnitChatPanel({
               );
             })
           )}
+          <div ref={messagesEndRef} aria-hidden="true" />
         </div>
       </ScrollArea>
       <form className="grid gap-2 border-t p-3" onSubmit={(event) => void handleSend(event)}>

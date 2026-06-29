@@ -564,7 +564,7 @@ export default function WorkPage() {
             }`}
           >
             <div className="min-h-0 overflow-x-auto overflow-y-hidden border-r">
-              <main className="flex min-w-max gap-3 p-4 pb-7">
+              <main className="flex h-full min-w-max gap-3 p-4 pb-7">
                 {STATUS_COLUMNS.map((column) => {
                   const collapsed = Boolean(collapsedColumns[column.value]);
                   const columnItems = columns[column.value] ?? [];
@@ -572,7 +572,7 @@ export default function WorkPage() {
                   return (
                     <section
                       key={column.value}
-                      className={`bg-muted/15 flex min-h-[560px] min-w-0 flex-col rounded-md border transition-[width] duration-200 ${
+                      className={`bg-muted/15 flex h-full min-h-0 min-w-0 flex-col rounded-md border transition-[width] duration-200 ${
                         collapsed ? "w-14 shrink-0" : "w-[260px] shrink-0"
                       }`}
                     >
