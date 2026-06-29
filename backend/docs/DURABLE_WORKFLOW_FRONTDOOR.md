@@ -1,4 +1,4 @@
-# Durable Workflow Frontdoor
+# Durable Workflow Runtime Frontdoor
 
 Status: architecture decision draft
 Date: 2026-06-26
@@ -6,10 +6,11 @@ Scope: DeerFlow backend gateway, runtime, persistence, and channel adapters
 
 ## Decision
 
-DeerFlow should add a native, minimal durable workflow frontdoor for every
-inbound message that may invoke an agent. The first layer should be a DeerFlow
-owned workflow envelope and ledger, not a hard dependency on AICOS, Restate,
-Temporal, or any product-specific task model.
+DeerFlow should add a native Durable Workflow Runtime Layer in core for inbound
+messages, run requests, dashboard requests, and delegated agent tasks that may
+invoke an agent. The first core surface should be a DeerFlow-owned workflow
+envelope and ledger, not a hard dependency on AICOS, Restate, Temporal, Hatchet,
+or any product-specific task model.
 
 The frontdoor provides stable intake identity, idempotency, routing/binding
 metadata, run/checkpoint references, and queryable workflow status. LangGraph
@@ -17,8 +18,10 @@ continues to own graph execution state, checkpoint values, graph-local memory,
 interrupt semantics, and replay from checkpoints. DeerFlow owns generic intake,
 run orchestration, channel routing, and event correlation.
 
-External workflow engines such as Restate or Temporal should be optional
-adapters above this interface, not a required DeerFlow core dependency.
+External workflow engines such as Restate, Temporal, or Hatchet must not be a
+required DeerFlow core dependency. The runtime layer should keep clean identity,
+lifecycle, refs, and event boundaries so users are not locked out of those
+systems when their deployments need them.
 
 Scalable DeerFlow deployments should add a small native workflow leasing layer
 to this envelope. Leasing gives DeerFlow a horizontal worker contract without
@@ -28,9 +31,9 @@ another worker recover it when the lease expires.
 
 For deployments that need durable work management, this frontdoor can later be
 paired with an optional DeerFlow Work Module. The frontdoor remains the generic
-intake and runtime-dispatch layer; the Work module would add reusable work unit,
-acceptance criterion, gate, artifact reference, review, and external PM-tool
-binding schemas.
+intake and runtime-dispatch layer; the Work module would add reusable Work Unit
+records, acceptance criteria, gates, artifact references, review metadata, and
+external refs that make deployment-owned PM integrations easier to build.
 
 ## Current Architecture Summary
 
@@ -77,9 +80,9 @@ Temporal and Restate solve a different boundary: durable orchestration replay.
 Temporal workflows must be deterministic and push non-deterministic operations
 such as API/LLM calls into activities. Restate journals steps, side effects,
 timers, and service calls so handlers can replay without duplicating completed
-effects. These are valuable optional execution adapters, but making either
-mandatory would raise DeerFlow's deployment bar and entangle the core runtime
-with a specific orchestrator.
+effects. These are valuable external systems, but making either mandatory would
+raise DeerFlow's deployment bar and entangle the core runtime with a specific
+execution engine.
 
 Hatchet is useful as a scale and worker model reference. Its durable execution
 docs separate ordinary task execution from durable tasks that checkpoint when
@@ -135,8 +138,8 @@ From Restate:
 - dedupe repeated submissions by identity/idempotency key;
 - distinguish retryable errors from terminal errors;
 - model external waits as durable workflow state, not as an in-memory future;
-- optionally support Restate as an execution adapter later, where Restate owns
-  its execution log and DeerFlow owns workflow/run/checkpoint refs.
+- keep boundaries clean enough that deployments can integrate Restate later if
+  they need durable handler execution outside DeerFlow core.
 
 From Temporal:
 
@@ -155,12 +158,12 @@ From Hatchet:
 - make waits and child work visible as durable state;
 - persist completed step/task refs so retries do not need to guess what already
   happened;
-- keep DAG/workflow-builder concerns separate from the minimal intake ledger.
+- keep DAG/workflow-builder concerns separate from the core runtime layer.
 
 The practical result is a small DeerFlow schema made of a mutable workflow
 projection plus append-only lifecycle facts. LangGraph remains the durable graph
-runtime. Optional engines can wrap DeerFlow, but DeerFlow still has a native
-frontdoor that every deployment can run.
+runtime. DeerFlow still has a native frontdoor that every deployment can run,
+while users remain free to integrate external workflow engines when needed.
 
 ## Boundary Rules
 
@@ -193,11 +196,11 @@ DeerFlow runtime core must not know integration-specific names such as Gate,
 Evidence, Review, Runtime Invocation, AICOS, OpenClaw, Restate, or Temporal.
 It also must not require the Work Module to run durable workflows.
 
-The optional Work Module intentionally sits between DeerFlow runtime core and
-external integrations. It provides generic community primitives such as Work
-Units and Work Gates, while adapter packages map those primitives to Jira
-issues, Trello cards, ClickUp tasks, Plane issues, Lark tasks/docs, or AICOS-X
-records.
+The optional Work Module intentionally sits above DeerFlow runtime core. It
+provides generic community primitives such as Work Units and Work Gates, plus
+external refs that make it easier for teams to connect Jira issues, Trello
+cards, ClickUp tasks, Plane issues, Lark tasks/docs, internal systems, or other
+work records without making those integrations DeerFlow core.
 
 ## Core Primitive: Workflow Envelope
 
@@ -229,7 +232,7 @@ Minimum fields:
 - `lease_owner`: worker/process id that currently owns execution.
 - `lease_expires_at`: time after which another worker may recover/claim it.
 - `error`: short error summary.
-- `metadata`: JSON for adapter/runtime extension data.
+- `metadata`: JSON for source/runtime extension data.
 - `created_at`, `updated_at`.
 
 The envelope stores refs and summaries. It must not copy LangGraph checkpoint
@@ -280,7 +283,7 @@ This table is not a copy of `RunEventStore`. It records DeerFlow workflow facts
 and points at run event sequence numbers where graph execution details already
 exist. UI timelines can merge workflow events and run events at query time.
 
-## Minimal Durable Schema
+## Durable Runtime Schema
 
 The first scalable schema should be intentionally small:
 
@@ -308,8 +311,8 @@ LangGraph checkpoints/checkpoint_writes/store
 
 Do not add a `workflow_steps` table in the first native layer. Step-level
 durability is already owned by LangGraph for graph nodes and can later be owned
-by an optional Restate/Temporal/Hatchet adapter for deployments that need
-deterministic code replay beyond LangGraph checkpoints.
+by an external workflow engine in deployments that need deterministic code
+replay beyond LangGraph checkpoints.
 
 Do not add a separate `workflow_runtime_bindings` table until DeerFlow needs
 one workflow to fan out into multiple runs or runtimes. The first model can bind
@@ -336,7 +339,7 @@ Routing should be deterministic before the agent is invoked:
    rules make that deterministic.
 5. If multiple valid candidates exist, persist the candidates in workflow
    metadata and pass the ambiguity to the agent or human flow. Do not guess in
-   the adapter.
+   channel/source-specific code.
 
 This resolver is intentionally not a semantic classifier. Semantic intent
 belongs in the agent or integration layer.
@@ -415,13 +418,13 @@ On startup:
 - workflows with expired leases and an active/local run should keep the run as
   source of truth until the run reaches a terminal state;
 - workflows that were only `received` or `bound` before a run was created can
-  be retried only when the idempotency key, input refs, and adapter policy make
+  be retried only when the idempotency key, input refs, and source policy make
   retry safe;
 - retry/resume policies must be explicit per workflow kind/source.
 
-Future Restate/Temporal adapters can provide stronger execution replay by
-driving DeerFlow through the same workflow envelope and marking their own
-orchestrator refs in metadata.
+Deployments that require stronger execution replay can integrate external
+workflow engines around the same DeerFlow identity, lifecycle, refs, and event
+boundaries.
 
 ## Human-In-The-Loop
 
@@ -466,20 +469,17 @@ ordered so that cutting later PRs still leaves a useful durable runtime prefix.
 9. Waiting, resume, and human-in-the-loop refs.
 10. Worker pool readiness.
 
-## First Implementation Slice
+## Review Grouping
 
-The first safe slice is PR 1 plus the persistence skeleton for PR 2:
+Submit the implementation as one coherent durable runtime package with two
+explicit review groups:
 
-- add this design doc;
-- add generic workflow status/kind/source enums;
-- add a `workflows` ORM model and Alembic migration;
-- add a small repository/store API with idempotent create-or-get by
-  idempotency key;
-- add lease/attempt fields so later PRs can scale workers horizontally without
-  another schema break;
-- add unit tests for idempotent create, binding updates, status updates, and
-  list filters;
-- do not change any gateway or channel runtime behavior yet.
+- PR 1-5: Core Runtime Package. Contracts, store, events, read APIs/trace, and
+  run endpoint compatibility wrappers, plus recovery/orphan reconciliation.
+- PR 6-10: Hardening/Scale Package. Deterministic binding, channel/dashboard
+  intake, waiting/resume refs, and worker readiness.
 
-This gives downstream PRs a stable table and API surface without changing the
-current run endpoints or channel dispatch path.
+The code stays split into reviewable PRs. The submit narrative should show the
+end-to-end native Durable Workflow Runtime Layer so maintainers can evaluate the
+core value without requiring Work Module, WorkBoard, PM connectors, or external
+workflow engines.
